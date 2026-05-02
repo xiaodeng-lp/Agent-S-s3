@@ -12,7 +12,7 @@ if errorlevel 1 (
 
 :: Install dependencies
 echo [INFO] Checking dependencies...
-pip install gui-agents pytesseract pyautogui -i https://pypi.tuna.tsinghua.edu.cn/simple -q
+pip install gui-agents pytesseract pyautogui -i https://pypi.tuna.tsinghua.edu.cn/simple
 if errorlevel 1 (
     echo [ERROR] Failed to install dependencies. Check your network.
     pause
