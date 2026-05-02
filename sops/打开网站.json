@@ -1,0 +1,13 @@
+{
+  "name": "打开网站",
+  "description": "用默认浏览器打开指定网址",
+  "params": [
+    {"name": "url", "label": "网址", "placeholder": "例如：https://www.baidu.com"}
+  ],
+  "steps": [
+    {"type": "hotkey",  "keys": ["win", "r"]},
+    {"type": "wait",    "seconds": 0.5},
+    {"type": "type",    "text": "{{url}}"},
+    {"type": "press",   "key": "enter"}
+  ]
+}

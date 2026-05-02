@@ -1,0 +1,9 @@
+{
+  "name": "截图保存桌面",
+  "description": "截取当前屏幕并保存到桌面（使用 Win+PrtSc）",
+  "params": [],
+  "steps": [
+    {"type": "hotkey", "keys": ["win", "printscreen"]},
+    {"type": "wait",   "seconds": 0.5}
+  ]
+}

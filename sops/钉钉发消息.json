@@ -1,0 +1,18 @@
+{
+  "name": "钉钉发消息",
+  "description": "在钉钉中搜索联系人并发送消息",
+  "params": [
+    {"name": "recipient", "label": "联系人/群名", "placeholder": "例如：运营团队"},
+    {"name": "message",   "label": "消息内容",   "placeholder": "例如：请查收文件"}
+  ],
+  "steps": [
+    {"type": "hotkey",  "keys": ["ctrl", "f"],  "comment": "钉钉全局搜索"},
+    {"type": "wait",    "seconds": 0.8},
+    {"type": "type",    "text": "{{recipient}}"},
+    {"type": "wait",    "seconds": 1.2},
+    {"type": "press",   "key": "enter"},
+    {"type": "wait",    "seconds": 1.0},
+    {"type": "type",    "text": "{{message}}"},
+    {"type": "press",   "key": "enter"}
+  ]
+}

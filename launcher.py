@@ -1,5 +1,5 @@
 import tkinter as tk
-from tkinter import ttk, scrolledtext
+from tkinter import ttk, scrolledtext, messagebox
 import subprocess
 import threading
 import pyautogui
@@ -56,14 +56,35 @@ class Launcher:
 
     def _build_ui(self):
         self.root.columnconfigure(0, weight=1)
-        self.root.rowconfigure(1, weight=1)
+        self.root.rowconfigure(0, weight=1)
+
+        notebook = ttk.Notebook(self.root)
+        notebook.grid(row=0, column=0, sticky="nsew", padx=6, pady=6)
+
+        # Tab 1: Agent
+        agent_tab = ttk.Frame(notebook)
+        notebook.add(agent_tab, text="  Agent  ")
+        self._build_agent_tab(agent_tab)
+
+        # Tab 2: SOP quick-actions
+        sop_tab = ttk.Frame(notebook)
+        notebook.add(sop_tab, text="  快捷操作  ")
+        self._build_sop_tab(sop_tab)
+
+        self.root.update_idletasks()
+        self.root.minsize(660, 600)
+
+    # ── Agent tab ────────────────────────────────────────────────────────────
+
+    def _build_agent_tab(self, parent):
+        parent.columnconfigure(0, weight=1)
+        parent.rowconfigure(1, weight=1)
 
         # ── 顶部：配置区 ──
-        cfg = ttk.LabelFrame(self.root, text="配置", padding=8)
-        cfg.grid(row=0, column=0, sticky="ew", padx=10, pady=(10, 0))
+        cfg = ttk.LabelFrame(parent, text="配置", padding=8)
+        cfg.grid(row=0, column=0, sticky="ew", padx=4, pady=(4, 0))
         cfg.columnconfigure(1, weight=1)
 
-        # 主模型
         ttk.Label(cfg, text="豆包 API Key").grid(row=0, column=0, sticky="w", pady=2)
         self.v_model_key = tk.StringVar(value=self.cfg["model_api_key"])
         ttk.Entry(cfg, textvariable=self.v_model_key, show="*", width=50).grid(row=0, column=1, sticky="ew", padx=(8, 0))
@@ -72,12 +93,10 @@ class Launcher:
         self.v_model_id = tk.StringVar(value=self.cfg["model_id"])
         ttk.Entry(cfg, textvariable=self.v_model_id, width=50).grid(row=1, column=1, sticky="ew", padx=(8, 0))
 
-        # 定位模型
         ttk.Label(cfg, text="OpenRouter API Key").grid(row=2, column=0, sticky="w", pady=2)
         self.v_ground_key = tk.StringVar(value=self.cfg["ground_api_key"])
         ttk.Entry(cfg, textvariable=self.v_ground_key, show="*", width=50).grid(row=2, column=1, sticky="ew", padx=(8, 0))
 
-        # 分辨率
         ttk.Label(cfg, text="定位分辨率").grid(row=3, column=0, sticky="w", pady=2)
         res_frame = ttk.Frame(cfg)
         res_frame.grid(row=3, column=1, sticky="w", padx=(8, 0))
@@ -89,7 +108,6 @@ class Launcher:
         self.v_screen_info = tk.StringVar()
         ttk.Label(res_frame, textvariable=self.v_screen_info, foreground="gray").pack(side="left", padx=(10, 0))
 
-        # 启动按钮
         btn_frame = ttk.Frame(cfg)
         btn_frame.grid(row=4, column=0, columnspan=2, pady=(8, 0))
         self.btn_start = ttk.Button(btn_frame, text="▶  启动 Agent", command=self._start_agent, width=20)
@@ -101,8 +119,8 @@ class Launcher:
         ttk.Label(btn_frame, textvariable=self.v_status, foreground="gray").pack(side="left", padx=12)
 
         # ── 中部：日志区 ──
-        log_frame = ttk.LabelFrame(self.root, text="运行日志", padding=4)
-        log_frame.grid(row=1, column=0, sticky="nsew", padx=10, pady=8)
+        log_frame = ttk.LabelFrame(parent, text="运行日志", padding=4)
+        log_frame.grid(row=1, column=0, sticky="nsew", padx=4, pady=8)
         log_frame.columnconfigure(0, weight=1)
         log_frame.rowconfigure(0, weight=1)
 
@@ -112,7 +130,6 @@ class Launcher:
                                              insertbackground="white")
         self.log.grid(row=0, column=0, sticky="nsew")
 
-        # 颜色标签
         self.log.tag_config("info",    foreground="#9cdcfe")
         self.log.tag_config("action",  foreground="#4ec9b0")
         self.log.tag_config("warn",    foreground="#ce9178")
@@ -121,8 +138,8 @@ class Launcher:
         self.log.tag_config("normal",  foreground="#d4d4d4")
 
         # ── 底部：指令输入区 ──
-        input_frame = ttk.LabelFrame(self.root, text="任务指令", padding=6)
-        input_frame.grid(row=2, column=0, sticky="ew", padx=10, pady=(0, 10))
+        input_frame = ttk.LabelFrame(parent, text="任务指令", padding=6)
+        input_frame.grid(row=2, column=0, sticky="ew", padx=4, pady=(0, 4))
         input_frame.columnconfigure(0, weight=1)
 
         self.v_query = tk.StringVar()
@@ -134,9 +151,142 @@ class Launcher:
         self.btn_send = ttk.Button(input_frame, text="发送", command=self._send_query, width=10, state="disabled")
         self.btn_send.grid(row=0, column=1)
 
-        # 最小尺寸
-        self.root.update_idletasks()
-        self.root.minsize(640, 560)
+    # ── SOP tab ───────────────────────────────────────────────────────────────
+
+    def _build_sop_tab(self, parent):
+        parent.columnconfigure(0, weight=1)
+        parent.rowconfigure(1, weight=1)
+
+        # toolbar
+        toolbar = ttk.Frame(parent)
+        toolbar.grid(row=0, column=0, sticky="ew", padx=8, pady=(8, 2))
+        ttk.Button(toolbar, text="🔄 刷新列表", command=self._reload_sops).pack(side="left")
+        ttk.Label(toolbar, text="  点击卡片填写参数并执行", foreground="gray").pack(side="left")
+
+        # scrollable card area
+        canvas = tk.Canvas(parent, highlightthickness=0)
+        canvas.grid(row=1, column=0, sticky="nsew", padx=8, pady=4)
+        vsb = ttk.Scrollbar(parent, orient="vertical", command=canvas.yview)
+        vsb.grid(row=1, column=1, sticky="ns", pady=4)
+        canvas.configure(yscrollcommand=vsb.set)
+
+        self._sop_frame = ttk.Frame(canvas)
+        self._sop_frame_id = canvas.create_window((0, 0), window=self._sop_frame, anchor="nw")
+        self._sop_frame.bind("<Configure>",
+                             lambda e: canvas.configure(scrollregion=canvas.bbox("all")))
+        canvas.bind("<Configure>",
+                    lambda e: canvas.itemconfig(self._sop_frame_id, width=e.width))
+        # mouse wheel
+        canvas.bind_all("<MouseWheel>",
+                        lambda e: canvas.yview_scroll(-1 * (e.delta // 120), "units"))
+
+        # SOP execution log
+        log_frame = ttk.LabelFrame(parent, text="执行日志", padding=4)
+        log_frame.grid(row=2, column=0, columnspan=2, sticky="ew", padx=8, pady=(4, 8))
+        log_frame.columnconfigure(0, weight=1)
+
+        self.sop_log = scrolledtext.ScrolledText(log_frame, wrap="word", height=8,
+                                                 font=("Consolas", 9), state="disabled",
+                                                 bg="#1e1e1e", fg="#d4d4d4")
+        self.sop_log.grid(row=0, column=0, sticky="ew")
+        self.sop_log.tag_config("ok",   foreground="#6a9955")
+        self.sop_log.tag_config("err",  foreground="#ce9178")
+        self.sop_log.tag_config("info", foreground="#9cdcfe")
+
+        self._reload_sops()
+
+    def _reload_sops(self):
+        from sop_executor import list_sops
+        for w in self._sop_frame.winfo_children():
+            w.destroy()
+        sops = list_sops()
+        if not sops:
+            ttk.Label(self._sop_frame,
+                      text="sops/ 目录为空，请在其中添加 JSON 文件",
+                      foreground="gray").pack(padx=12, pady=20)
+            return
+        for sop in sops:
+            self._make_sop_card(sop)
+
+    def _make_sop_card(self, sop: dict):
+        card = ttk.LabelFrame(self._sop_frame,
+                              text=sop.get("name", "未命名"),
+                              padding=8)
+        card.pack(fill="x", padx=6, pady=4)
+        card.columnconfigure(1, weight=1)
+
+        desc = sop.get("description", "")
+        if desc:
+            ttk.Label(card, text=desc, foreground="gray",
+                      wraplength=500, justify="left").grid(
+                row=0, column=0, columnspan=2, sticky="w", pady=(0, 6))
+
+        param_vars = {}
+        for i, p in enumerate(sop.get("params", []), start=1):
+            ttk.Label(card, text=p["label"]).grid(row=i, column=0, sticky="w", padx=(0, 8))
+            var = tk.StringVar()
+            entry = ttk.Entry(card, textvariable=var, width=40)
+            entry.grid(row=i, column=1, sticky="ew")
+            if p.get("placeholder"):
+                entry.insert(0, p["placeholder"])
+                entry.configure(foreground="gray")
+
+                def _on_focus_in(e, ent=entry, ph=p["placeholder"]):
+                    if ent.get() == ph:
+                        ent.delete(0, "end")
+                        ent.configure(foreground="")
+
+                def _on_focus_out(e, ent=entry, v=var, ph=p["placeholder"]):
+                    if not v.get():
+                        ent.insert(0, ph)
+                        ent.configure(foreground="gray")
+
+                entry.bind("<FocusIn>",  _on_focus_in)
+                entry.bind("<FocusOut>", _on_focus_out)
+
+            param_vars[p["name"]] = (var, p.get("placeholder", ""))
+
+        row_btn = max(len(sop.get("params", [])) + 1, 1)
+        ttk.Button(
+            card, text="▶  立即执行",
+            command=lambda s=sop, pv=param_vars: self._run_sop(s, pv)
+        ).grid(row=row_btn, column=0, columnspan=2, pady=(8, 0))
+
+    def _run_sop(self, sop: dict, param_vars: dict):
+        params = {}
+        for name, (var, placeholder) in param_vars.items():
+            val = var.get().strip()
+            if val == placeholder:
+                val = ""
+            params[name] = val
+
+        # check required params
+        missing = [p["label"] for p in sop.get("params", [])
+                   if not params.get(p["name"]) and not p.get("optional")]
+        if missing:
+            messagebox.showwarning("缺少参数", f"请填写：{', '.join(missing)}")
+            return
+
+        self._sop_log_write(f"\n▶ 执行：{sop.get('name')}\n", "info")
+
+        def worker():
+            from sop_executor import run_sop
+            try:
+                run_sop(sop, params, log_fn=lambda m: self._sop_log_write(m + "\n"))
+            except Exception as e:
+                self._sop_log_write(f"✗ 执行失败：{e}\n", "err")
+
+        threading.Thread(target=worker, daemon=True).start()
+
+    def _sop_log_write(self, text: str, tag: str = "info"):
+        self.sop_log.configure(state="normal")
+        if "✅" in text or "完成" in text:
+            tag = "ok"
+        elif "✗" in text or "错误" in text or "失败" in text:
+            tag = "err"
+        self.sop_log.insert("end", text, tag)
+        self.sop_log.see("end")
+        self.sop_log.configure(state="disabled")
 
     # ─── 分辨率自动检测 ───────────────────────────────────────────────────────
 
@@ -221,7 +371,6 @@ class Launcher:
                 self.output_queue.put(None)
                 break
             buf += ch
-            # 遇到换行或出现 "Query: " 提示时推送
             if ch == "\n" or buf.endswith("Query: ") or buf.endswith("(y/n): "):
                 self.output_queue.put(buf)
                 buf = ""
@@ -242,7 +391,6 @@ class Launcher:
         line = ANSI_ESCAPE.sub("", line)
         line_strip = line.strip()
 
-        # 识别 "Query:" 提示，激活输入框
         if line_strip.startswith("Query:"):
             if not self.agent_ready:
                 self.agent_ready = True
@@ -252,12 +400,10 @@ class Launcher:
                 self.entry_query.focus()
             return
 
-        # 自动回复"继续查询"提示
         if "Would you like to provide another query" in line:
             self._write_stdin("y\n")
             return
 
-        # 着色
         if "PLAN:" in line or "Step" in line:
             tag = "action"
         elif "ERROR" in line or "Error" in line or "Traceback" in line:
