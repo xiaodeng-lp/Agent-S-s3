@@ -11,17 +11,13 @@ if errorlevel 1 (
     exit /b
 )
 
-:: 检查依赖
-python -c "import gui_agents" >nul 2>&1
+:: 安装依赖（已安装的会自动跳过）
+echo [提示] 正在检查并安装依赖...
+pip install gui-agents pytesseract pyautogui -i https://pypi.tuna.tsinghua.edu.cn/simple -q
 if errorlevel 1 (
-    echo [提示] 正在安装依赖，请稍候...
-    pip install gui-agents pytesseract -i https://pypi.tuna.tsinghua.edu.cn/simple
-    if errorlevel 1 (
-        echo [错误] 依赖安装失败，请检查网络后重试
-        pause
-        exit /b
-    )
-    echo [完成] 依赖安装成功
+    echo [错误] 依赖安装失败，请检查网络后重试
+    pause
+    exit /b
 )
 
 :: 启动
