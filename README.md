@@ -3,6 +3,46 @@
   <small>Use Computer Like a Human</small>
 </h1>
 
+---
+
+## 🇨🇳 快速上手（Windows）
+
+> 本版本在原版 Agent S3 基础上新增了 **图形化启动器**，支持一键启动，自动适配屏幕分辨率，适合 Windows 用户直接使用。
+
+### 第一步：安装依赖
+
+右键 `install.ps1` → **用 PowerShell 运行**，等待安装完成。
+
+> 需要提前安装 [Python 3.10–3.12](https://www.python.org/downloads/)
+
+### 第二步：准备 API Key
+
+需要两个免费/付费 API：
+
+| 用途 | 平台 | 说明 |
+|------|------|------|
+| 主模型（理解指令）| [火山引擎方舟](https://console.volcengine.com/ark) | 注册后创建豆包视觉模型 Endpoint，获取 API Key 和 Endpoint ID |
+| 定位模型（找图标）| [OpenRouter](https://openrouter.ai) | 注册免费账号，在 Settings → Keys 创建 Key |
+
+### 第三步：启动
+
+双击 **`启动.bat`**，在弹出的界面中填入 API Key，点击「保存配置」后点「启动 Agent」。
+
+出现 **✅ Agent 就绪** 后，在底部输入框输入任务指令即可，例如：
+
+```
+在飞书群聊"项目组"中发送消息"今天下午3点开会"
+```
+
+### 注意事项
+
+- 仅支持**单显示器**
+- Agent 会直接控制鼠标和键盘，执行过程中请勿操作电脑
+- 每步操作需要 30 秒–2 分钟，请耐心等待
+
+---
+
+
 <p align="center">&nbsp;
   🌐 <a href="https://www.simular.ai/articles/agent-s3">[S3 blog]</a>&nbsp;
   📄 <a href="https://arxiv.org/abs/2510.02250">[S3 Paper]</a>&nbsp;
