@@ -39,6 +39,7 @@ class WindowsFeishuACI(OSWorldACI):
         if self.platform == "windows":
             try:
                 import ctypes
+
                 self.virtual_screen_left = ctypes.windll.user32.GetSystemMetrics(76)
                 self.virtual_screen_top = ctypes.windll.user32.GetSystemMetrics(77)
             except Exception:
@@ -71,7 +72,9 @@ class WindowsFeishuACI(OSWorldACI):
             obs_size = None
         trace_payload = {
             "ref_expr": ref_expr,
-            "response_tail": response[-400:] if isinstance(response, str) else repr(response),
+            "response_tail": (
+                response[-400:] if isinstance(response, str) else repr(response)
+            ),
             "numericals": numericals[:8],
             "obs_size": obs_size,
             "grounding_size": (
@@ -89,7 +92,14 @@ class WindowsFeishuACI(OSWorldACI):
             if raw_x < 0 or raw_y < 0 or raw_x > gw or raw_y > gh:
                 self._trace_execution(
                     "GROUNDING_COORD_OUT_OF_RANGE: "
-                    + repr({"coords": coords, "grounding_size": (gw, gh), "obs_size": obs_size, "ref_expr": ref_expr})
+                    + repr(
+                        {
+                            "coords": coords,
+                            "grounding_size": (gw, gh),
+                            "obs_size": obs_size,
+                            "ref_expr": ref_expr,
+                        }
+                    )
                 )
         return coords
 
@@ -178,7 +188,9 @@ class WindowsFeishuACI(OSWorldACI):
                 try:
                     buf = ctypes.create_unicode_buffer(512)
                     sz = ctypes.c_ulong(512)
-                    ctypes.windll.kernel32.QueryFullProcessImageNameW(h, 0, buf, ctypes.byref(sz))
+                    ctypes.windll.kernel32.QueryFullProcessImageNameW(
+                        h, 0, buf, ctypes.byref(sz)
+                    )
                     return _os.path.basename(buf.value).lower()
                 finally:
                     ctypes.windll.kernel32.CloseHandle(h)
@@ -192,7 +204,9 @@ class WindowsFeishuACI(OSWorldACI):
                             ctypes.windll.user32.ShowWindow(hwnd, 9)
                             ctypes.windll.user32.SetForegroundWindow(hwnd)
                             time.sleep(0.5)
-                            self._trace_execution(f"FEISHU_FOCUS_NOW: ctypes hwnd={hwnd} exe={exe}")
+                            self._trace_execution(
+                                f"FEISHU_FOCUS_NOW: ctypes hwnd={hwnd} exe={exe}"
+                            )
                             return True
                 except Exception:
                     pass
@@ -210,7 +224,9 @@ class WindowsFeishuACI(OSWorldACI):
             captured_size = screenshot.size
             grounding_width = self.engine_params_for_grounding["grounding_width"]
             grounding_height = self.engine_params_for_grounding["grounding_height"]
-            screenshot = screenshot.resize((grounding_width, grounding_height), Image.LANCZOS)
+            screenshot = screenshot.resize(
+                (grounding_width, grounding_height), Image.LANCZOS
+            )
             buffered = BytesIO()
             screenshot.save(buffered, format="PNG")
             if self.obs is None:
@@ -218,7 +234,12 @@ class WindowsFeishuACI(OSWorldACI):
             self.obs["screenshot"] = buffered.getvalue()
             self._trace_execution(
                 "FEISHU_REFRESH_OBS: "
-                + repr({"captured_size": captured_size, "grounding_size": (grounding_width, grounding_height)})
+                + repr(
+                    {
+                        "captured_size": captured_size,
+                        "grounding_size": (grounding_width, grounding_height),
+                    }
+                )
             )
         except Exception as exc:
             self._trace_execution(f"FEISHU_REFRESH_OBS_ERROR: {exc!r}")
@@ -231,7 +252,9 @@ class WindowsFeishuACI(OSWorldACI):
         for encoding in ("gbk", "gb18030", "cp936"):
             for errors in ("strict", "ignore"):
                 try:
-                    repaired = text.encode(encoding, errors=errors).decode("utf-8", errors=errors)
+                    repaired = text.encode(encoding, errors=errors).decode(
+                        "utf-8", errors=errors
+                    )
                 except UnicodeError:
                     continue
                 if repaired and repaired not in candidates:
@@ -241,12 +264,46 @@ class WindowsFeishuACI(OSWorldACI):
             good_chars = sum("一" <= ch <= "鿿" for ch in value)
             bad_markers = sum(
                 value.count(m)
-                for m in ("?", "锟", "閿", "閹", "閸", "鍏", "濞", "瀣", "妞",
-                          "鐐", "鍔", "鍒", "嗕", "韩", "椋", "炰", "功", "浜",
-                          "戞", "枃", "妗", "鏂", "板", "缓", "绌", "櫧", "缁",
-                          "堜", "簬", "濂", "戒", "簡")
+                for m in (
+                    "?",
+                    "锟",
+                    "閿",
+                    "閹",
+                    "閸",
+                    "鍏",
+                    "濞",
+                    "瀣",
+                    "妞",
+                    "鐐",
+                    "鍔",
+                    "鍒",
+                    "嗕",
+                    "韩",
+                    "椋",
+                    "炰",
+                    "功",
+                    "浜",
+                    "戞",
+                    "枃",
+                    "妗",
+                    "鏂",
+                    "板",
+                    "缓",
+                    "绌",
+                    "櫧",
+                    "缁",
+                    "堜",
+                    "簬",
+                    "濂",
+                    "戒",
+                    "簡",
+                )
             )
-            return good_chars * 3 - bad_markers * 5 + len(value.replace("?", "").replace("锟", ""))
+            return (
+                good_chars * 3
+                - bad_markers * 5
+                + len(value.replace("?", "").replace("锟", ""))
+            )
 
         repaired = max(candidates, key=score)
         if repaired != text:
@@ -298,7 +355,11 @@ class WindowsFeishuACI(OSWorldACI):
             has_cjk = any("一" <= ch <= "鿿" for ch in value)
             has_ascii = any(ch.isascii() and ch.isalnum() for ch in value)
             mixed = has_ascii and has_cjk
-            return (2 if has_cjk else 0) + (1 if mixed else 0), -len(value), -value.count(" ")
+            return (
+                (2 if has_cjk else 0) + (1 if mixed else 0),
+                -len(value),
+                -value.count(" "),
+            )
 
         return max(candidates, key=fallback_score)
 
@@ -359,7 +420,11 @@ class WindowsFeishuACI(OSWorldACI):
             )
             click_code = build_feishu_uia_click_code(target_text, 1, "left")
 
-        overwrite_code = "pyautogui.hotkey('ctrl', 'a'); pyautogui.press('backspace');\n" if overwrite else ""
+        overwrite_code = (
+            "pyautogui.hotkey('ctrl', 'a'); pyautogui.press('backspace');\n"
+            if overwrite
+            else ""
+        )
         enter_code = "pyautogui.press('enter')\n" if enter else ""
 
         if click_code:
@@ -372,7 +437,9 @@ class WindowsFeishuACI(OSWorldACI):
 
         if click_code:
             _indent = "    "
-            _ow = (_indent + overwrite_code.rstrip("\n") + "\n") if overwrite_code else ""
+            _ow = (
+                (_indent + overwrite_code.rstrip("\n") + "\n") if overwrite_code else ""
+            )
             _en = (_indent + enter_code.rstrip("\n") + "\n") if enter_code else ""
             _paste_block = (
                 f"if clicked:\n"
@@ -381,18 +448,18 @@ class WindowsFeishuACI(OSWorldACI):
                 f"{_indent}pyautogui.hotkey('ctrl', 'v')\n"
                 f"{_en}"
             )
-            return focus_code + f"\nimport pyautogui\nimport pyperclip\n{click_code}\n{_paste_block}\n"
+            return (
+                focus_code
+                + f"\nimport pyautogui\nimport pyperclip\n{click_code}\n{_paste_block}\n"
+            )
 
-        return (
-            focus_code
-            + f"""
+        return focus_code + f"""
 import pyautogui
 import pyperclip
 {overwrite_code}pyperclip.copy({text!r})
 pyautogui.hotkey('ctrl', 'v')
 {enter_code}
 """
-        )
 
     @agent_action
     def feishu_doc_click(self, button_name: str):

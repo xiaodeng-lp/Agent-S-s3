@@ -5,6 +5,7 @@ import logging
 import os
 import platform
 import pyautogui
+
 pyautogui.FAILSAFE = False
 import signal
 import sys
@@ -84,8 +85,10 @@ def repair_text_mojibake(text: str) -> str:
                 "簡",
             )
         )
-        return good_chars * 3 - bad_markers * 5 + len(
-            value.replace("?", "").replace("�", "").replace("锟", "")
+        return (
+            good_chars * 3
+            - bad_markers * 5
+            + len(value.replace("?", "").replace("�", "").replace("锟", ""))
         )
 
     return max(candidates, key=score)
@@ -264,7 +267,9 @@ def capture_desktop_screenshot():
         try:
             return ImageGrab.grab(all_screens=True)
         except Exception as exc:
-            logger.warning("All-screen capture failed, falling back to pyautogui: %s", exc)
+            logger.warning(
+                "All-screen capture failed, falling back to pyautogui: %s", exc
+            )
     return pyautogui.screenshot()
 
 

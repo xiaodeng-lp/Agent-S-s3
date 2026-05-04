@@ -25,7 +25,7 @@ logger = logging.getLogger("desktopenv.agent")
 
 def _parse_expected_next_state(plan: str) -> str:
     match = _re.search(
-        r'\(Expected Next State\)[^\n]*\n(.*?)(?=\n\s*\(|\n\s*```|$)',
+        r"\(Expected Next State\)[^\n]*\n(.*?)(?=\n\s*\(|\n\s*```|$)",
         plan,
         _re.DOTALL | _re.IGNORECASE,
     )
@@ -149,12 +149,10 @@ class Worker(BaseModule):
         if self.enable_reflection:
             # Load the initial message
             if self.turn_count == 0:
-                text_content = textwrap.dedent(
-                    f"""
+                text_content = textwrap.dedent(f"""
                     Task Description: {instruction}
                     Current Trajectory below:
-                    """
-                )
+                    """)
                 updated_sys_prompt = (
                     self.reflection_agent.system_prompt + "\n" + text_content
                 )
