@@ -85,9 +85,6 @@ def detect_complexity(
     if step_failed or screenshot_complex:
         return ReasoningEffort.XHIGH
 
-    if _contains_complex_pattern(task):
-        return ReasoningEffort.XHIGH
-
     if last_action and _contains_complex_pattern(last_action):
         return ReasoningEffort.XHIGH
 
