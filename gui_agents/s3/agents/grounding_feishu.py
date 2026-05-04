@@ -500,16 +500,13 @@ class WindowsFeishuACI(OSWorldACI):
                 + f"\nimport pyautogui\nimport pyperclip\n{click_code}\n{_paste_block}\n"
             )
 
-        return (
-            focus_code
-            + f"""
+        return focus_code + f"""
 import pyautogui
 import pyperclip
 {overwrite_code}pyperclip.copy({text!r})
 pyautogui.hotkey('ctrl', 'v')
 {enter_code}
 """
-        )
 
     @agent_action
     def feishu_doc_click(self, button_name: str):
