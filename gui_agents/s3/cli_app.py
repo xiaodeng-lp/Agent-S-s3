@@ -175,12 +175,12 @@ def _settle_delay(exec_code: str) -> float:
     return 1.5
 
 
-def run_agent(agent, instruction: str, scaled_width: int, scaled_height: int):
+def run_agent(agent, instruction: str, scaled_width: int, scaled_height: int, max_steps: int = 15):
     global paused
     obs = {}
     traj = "Task:\n" + instruction
     subtask_traj = ""
-    for step in range(15):
+    for step in range(max_steps):
         # Check if we're in paused state and wait
         while paused:
             time.sleep(0.1)
@@ -201,7 +201,7 @@ def run_agent(agent, instruction: str, scaled_width: int, scaled_height: int):
         while paused:
             time.sleep(0.1)
 
-        print(f"\n🔄 Step {step + 1}/15: Getting next action from agent...")
+        print(f"\n🔄 Step {step + 1}/{max_steps}: Getting next action from agent...")
         t_predict_start = time.time()
 
         # Get next action code from the agent
@@ -366,6 +366,12 @@ def main():
         choices=["low", "medium", "high", "xhigh"],
         help="Reasoning effort for GPT/o-series models (low/medium/high/xhigh)",
     )
+    parser.add_argument(
+        "--budget",
+        type=int,
+        default=15,
+        help="Maximum number of steps (default: 15)",
+    )
 
     args = parser.parse_args()
 
@@ -421,7 +427,7 @@ def main():
         agent.reset()
 
         # Run the agent on your own device
-        run_agent(agent, query, scaled_width, scaled_height)
+        run_agent(agent, query, scaled_width, scaled_height, args.budget)
 
         response = input("Would you like to provide another query? (y/n): ")
         if response.lower() != "y":
