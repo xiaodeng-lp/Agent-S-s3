@@ -42,6 +42,19 @@
 
 ---
 
+## 📖 开发文档
+
+> 🔍 **团队协作 / 代码审查的必读**
+
+| 文档 | 用途 |
+|------|------|
+| [MERGE_NOTES.md](MERGE_NOTES.md) | 本次合并的详细改动说明（What / Why） |
+| [docs/INTERFACE_COMPATIBILITY.md](docs/INTERFACE_COMPATIBILITY.md) | API 兼容性、迁移清单、扩展指南 |
+| [docs/PROJECT_STATE.md](docs/PROJECT_STATE.md) | 项目当前状态、已知问题 |
+| [docs/DECISIONS.md](docs/DECISIONS.md) | 架构决策记录（ADR） |
+
+---
+
 
 <p align="center">&nbsp;
   🌐 <a href="https://www.simular.ai/articles/agent-s3">[S3 blog]</a>&nbsp;

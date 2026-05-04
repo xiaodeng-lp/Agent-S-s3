@@ -18,7 +18,20 @@ from gui_agents.s3.utils.formatters import (
     CODE_VALID_FORMATTER,
 )
 
+import re as _re
+
 logger = logging.getLogger("desktopenv.agent")
+
+
+def _parse_expected_next_state(plan: str) -> str:
+    match = _re.search(
+        r'\(Expected Next State\)[^\n]*\n(.*?)(?=\n\s*\(|\n\s*```|$)',
+        plan,
+        _re.DOTALL | _re.IGNORECASE,
+    )
+    if match:
+        return match.group(1).strip()
+    return ""
 
 
 class Worker(BaseModule):
@@ -79,6 +92,7 @@ class Worker(BaseModule):
         self.reflections = []
         self.cost_this_turn = 0
         self.screenshot_inputs = []
+        self.last_expected_state: str = ""
 
     def flush_messages(self):
         """Flush messages based on the model's context limits.
@@ -183,6 +197,12 @@ class Worker(BaseModule):
             if self.turn_count > 0
             else "The initial screen is provided. No action has been taken yet."
         )
+
+        if self.turn_count > 0 and self.last_expected_state:
+            generator_message = (
+                f"Expected state from last action: {self.last_expected_state}\n\n"
+                + generator_message
+            )
 
         # Load the task into the system prompt
         if self.turn_count == 0:
@@ -350,6 +370,7 @@ class Worker(BaseModule):
             temperature=self.temperature,
             use_thinking=self.use_thinking,
         )
+        self.last_expected_state = _parse_expected_next_state(plan)
         self.worker_history.append(plan)
         self.generator_agent.add_message(plan, role="assistant")
         logger.info("PLAN:\n %s", plan)

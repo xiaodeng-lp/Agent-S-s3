@@ -14,7 +14,7 @@ from tqdm import tqdm
 import lib_run_single
 from desktop_env.desktop_env import DesktopEnv
 from gui_agents.s3.agents.agent_s import AgentS3
-from gui_agents.s3.agents.grounding import OSWorldACI
+from gui_agents.s3.agents.grounding_feishu import WindowsFeishuACI as OSWorldACI
 
 from dotenv import load_dotenv
 
