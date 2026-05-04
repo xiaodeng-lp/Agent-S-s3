@@ -171,7 +171,7 @@ def set_cell_values(new_cell_values: dict[str, str], app_name: str = "Untitled 1
     else:
         raise ValueError(f"Could not find LibreOffice Calc app corresponding to {{app_name}}.")
 
-set_cell_values(new_cell_values={cell_values}, app_name="{app_name}", sheet_name="{sheet_name}")        
+set_cell_values(new_cell_values={cell_values}, app_name="{app_name}", sheet_name="{sheet_name}")
 """
 
 

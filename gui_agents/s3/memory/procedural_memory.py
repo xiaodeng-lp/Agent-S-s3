@@ -80,14 +80,22 @@ class PROCEDURAL_MEMORY:
         procedural_memory += textwrap.dedent(
             """
         Your response should be formatted like this:
-        (Previous action verification)
-        Carefully analyze based on the screenshot if the previous action was successful. If the previous action was not successful, provide a reason for the failure.
+        (Observe)
+        Look only at the current screenshot. Describe what view or mode the application is currently in and what controls are visible. Do not reference your plan history here — only describe what you see right now.
 
-        (Screenshot Analysis)
-        Closely examine and describe the current state of the desktop along with the currently open applications.
+        (State Verification)
+        Compare the current screen to the Expected Next State from your last step (shown in this message as "Expected state from last action: ...").
+        Classify the current state as one of:
+        - As expected: the last action worked as planned, continue
+        - Behind: the screen has not changed or the last action had no effect, consider a retry or alternative
+        - Ahead: the UI has already reached a state you planned to reach in a future step; explicitly identify which planned steps are now unnecessary and skip them
+        If this is the first step, write: "First step — no expected state."
 
         (Next Action)
-        Based on the current screenshot and the history of your previous interaction with the UI, decide on the next action in natural language to accomplish the given task.
+        Based on the current screen state (from Observe and State Verification above) and what still needs to be done to complete the task, decide the single next action.
+
+        (Expected Next State)
+        In one sentence, describe what the screen should look like immediately after the next action succeeds. Be specific: name the UI view, dialog, or element that should appear or change.
 
         (Grounded Action)
         Translate the next action into code using the provided API methods. Format the code like this:
@@ -106,6 +114,12 @@ class PROCEDURAL_MEMORY:
         9. Generate agent.done() as your grounded action when your believe the task is fully complete.
         10. Do not use the "command" + "tab" hotkey on MacOS.
         11. Prefer hotkeys and application features over clicking on text elements when possible. Highlighting text is fine.
+        12. On Windows, prefer `agent.open("application name")` for opening or foregrounding applications before clicking taskbar icons.
+        13. On Windows Feishu/Lark tasks, keep Feishu on the main screen and use the Feishu-specific UIA helpers: first call `agent.feishu_focus()` when starting a Feishu task or whenever Feishu is not clearly foreground and unobscured, then use `agent.feishu_click("detailed description with exact visible text")` for clicks, and `agent.feishu_type(text, "detailed input description with exact placeholder or visible text", overwrite=False, enter=False)` for pasting into inputs. These Feishu helpers do not use the sandbox interface or visual grounding coordinates. After clicking "保存" in a Feishu schedule dialog, a small confirmation popup "确定创建日程吗？" may appear — click `agent.feishu_click("确定")` to confirm before calling `agent.done()`.
+        14. On Windows, some Feishu features (e.g. clicking "云文档" in the sidebar) open content in a web browser instead of the desktop app. UIA-based helpers (`feishu_click`, `feishu_type`) cannot find elements inside a browser window. When the Feishu interface is open in a browser (e.g. Edge), use these rules: (a) For TOOLBAR BUTTONS at the top of the Feishu cloud doc page (e.g. "分享", "评论", "更多", "分析"), prefer `agent.feishu_doc_click("button_name")` — this uses the browser window's right-edge geometry and is reliable even when visual grounding struggles with small toolbar buttons. (b) For CONTENT interactions inside the document (clicking within the page body, menus, links), use `agent.click("detailed description")` and `agent.type(text="...", enter=False)` which use visual grounding coordinates.
+        15. When creating a new Feishu cloud document (新建文档) from the 云文档 section: use this fixed sequence: (a) `agent.feishu_click("云文档")` to enter the section, (b) `agent.feishu_click("新建")` to open the New-type dropdown (native UIA control), (c) `agent.feishu_click("文档")` to select the document type from the dropdown, (d) `agent.feishu_click("新建空白文档")` to click the blank-document card in the template popup — the popup opened via this dropdown path is the foreground window, so UIA foreground priority ensures the correct card is found rather than a same-named file in the document list. Do NOT use `agent.click("新建空白文档 card...")` (visual grounding) for this step — the grounding model returns sidebar coordinates (~x=516, y=360) instead of the popup card, causing the click to land on unrelated navigation items such as "推荐". Do NOT use `agent.feishu_click("新建文档")` directly on the cloud docs list — UIA will hit an existing document instead of the creation button. If `agent.feishu_click("新建空白文档")` at step (d) fails (FEISHU_UIA_CLICK_MISS in logs), fall back to `agent.hotkey(['Return'])` to confirm the default-selected card.
+        16. When a new Feishu cloud document has just opened in a browser (after step 15 above): the document title input field "请输入标题" is auto-focused as soon as the page finishes loading — do NOT try to click it. Visual grounding for this field returns toolbar coordinates (~x=428, y=171) which misses the title area and breaks auto-focus. Instead: (a) after the page loads, directly call `agent.type(text="your title", overwrite=False, enter=False)` to type the document title — use overwrite=False (NOT overwrite=True) because the title field is empty on creation and Ctrl+A from overwrite=True triggers the full-editor select-all in the browser, which shifts focus to the cover placeholder above the title and causes an unwanted cover image to be inserted; (b) to move focus to the body content area, press `agent.hotkey(['Return'])` once (this moves the cursor from title into body); (c) then call `agent.type(text="your body content")` for the document body. Do NOT use `agent.click()` to locate the title field — use `agent.type()` without any element_description to write into the auto-focused title.
+        17. When sharing a Feishu cloud document from the browser: (a) call `agent.feishu_doc_click("分享")` to open the share popup — the search/invite input is auto-focused when the popup opens; (b) immediately call `agent.feishu_doc_type("search text")` to paste the search text into the focused input WITHOUT clicking first — do NOT use `agent.type(element_description, text)` because the click to locate the element dismisses the light-dismiss popup; (c) wait for the dropdown results to appear; (d) press `agent.hotkey(['Return'])` or click the first result to select it; (e) call `agent.click("发送 button")` to click the blue 发送 button. A green toast such as `邀请成员成功` means the share action completed. Do NOT press `Esc` at any point in this flow — it closes the popup.
         """
         )
 

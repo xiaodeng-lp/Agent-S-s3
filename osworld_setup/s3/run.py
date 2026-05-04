@@ -102,7 +102,7 @@ def run_env_tasks(
                 logger.error(f"Failed to get snapshot_name from IMAGE_ID_MAP: {e}")
                 snapshot_name = None
         from gui_agents.s3.agents.agent_s import AgentS3
-        from gui_agents.s3.agents.grounding import OSWorldACI
+        from gui_agents.s3.agents.grounding_feishu import WindowsFeishuACI as OSWorldACI
 
         env = DesktopEnv(
             path_to_vm=args.path_to_vm,

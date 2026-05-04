@@ -19,8 +19,10 @@ DEFAULT_CONFIG = {
     "model_api_key":  "",
     "model_id":       "",
     "model_url":      "https://ark.cn-beijing.volces.com/api/v3",
+    "ground_provider": "doubao_ark",
     "ground_api_key": "",
-    "ground_model":   "bytedance/ui-tars-1.5-7b",
+    "ground_url":     "https://ark.cn-beijing.volces.com/api/v3",
+    "ground_model":   "doubao-seed-1-6-vision-250815",
 }
 
 def load_config():
@@ -28,6 +30,11 @@ def load_config():
         try:
             with open(CONFIG_FILE, "r", encoding="utf-8") as f:
                 saved = json.load(f)
+            if "ground_provider" not in saved and saved.get("ground_api_key", "").startswith("ark-"):
+                saved["ground_provider"] = "doubao_ark"
+                saved["ground_url"] = DEFAULT_CONFIG["model_url"]
+                if saved.get("model_id"):
+                    saved["ground_model"] = saved["model_id"]
             return {**DEFAULT_CONFIG, **saved}
         except Exception:
             pass
@@ -61,20 +68,16 @@ class Launcher:
         notebook = ttk.Notebook(self.root)
         notebook.grid(row=0, column=0, sticky="nsew", padx=6, pady=6)
 
-        # Tab 1: Agent
         agent_tab = ttk.Frame(notebook)
         notebook.add(agent_tab, text="  Agent  ")
         self._build_agent_tab(agent_tab)
 
-        # Tab 2: SOP quick-actions
         sop_tab = ttk.Frame(notebook)
         notebook.add(sop_tab, text="  快捷操作  ")
         self._build_sop_tab(sop_tab)
 
         self.root.update_idletasks()
         self.root.minsize(660, 600)
-
-    # ── Agent tab ────────────────────────────────────────────────────────────
 
     def _build_agent_tab(self, parent):
         parent.columnconfigure(0, weight=1)
@@ -85,6 +88,7 @@ class Launcher:
         cfg.grid(row=0, column=0, sticky="ew", padx=4, pady=(4, 0))
         cfg.columnconfigure(1, weight=1)
 
+        # 主模型
         ttk.Label(cfg, text="豆包 API Key").grid(row=0, column=0, sticky="w", pady=2)
         self.v_model_key = tk.StringVar(value=self.cfg["model_api_key"])
         ttk.Entry(cfg, textvariable=self.v_model_key, show="*", width=50).grid(row=0, column=1, sticky="ew", padx=(8, 0))
@@ -93,13 +97,33 @@ class Launcher:
         self.v_model_id = tk.StringVar(value=self.cfg["model_id"])
         ttk.Entry(cfg, textvariable=self.v_model_id, width=50).grid(row=1, column=1, sticky="ew", padx=(8, 0))
 
-        ttk.Label(cfg, text="OpenRouter API Key").grid(row=2, column=0, sticky="w", pady=2)
-        self.v_ground_key = tk.StringVar(value=self.cfg["ground_api_key"])
-        ttk.Entry(cfg, textvariable=self.v_ground_key, show="*", width=50).grid(row=2, column=1, sticky="ew", padx=(8, 0))
+        # 定位模型
+        ttk.Label(cfg, text="定位 Provider").grid(row=2, column=0, sticky="w", pady=2)
+        self.v_ground_provider = tk.StringVar(value=self.cfg["ground_provider"])
+        provider_frame = ttk.Frame(cfg)
+        provider_frame.grid(row=2, column=1, sticky="ew", padx=(8, 0))
+        self.cmb_ground_provider = ttk.Combobox(
+            provider_frame,
+            textvariable=self.v_ground_provider,
+            values=("doubao_ark", "open_router", "openai"),
+            width=16,
+            state="readonly",
+        )
+        self.cmb_ground_provider.pack(side="left")
+        self.cmb_ground_provider.bind("<<ComboboxSelected>>", lambda e: self._apply_ground_provider_defaults())
 
-        ttk.Label(cfg, text="定位分辨率").grid(row=3, column=0, sticky="w", pady=2)
+        ttk.Label(cfg, text="定位 API Key").grid(row=3, column=0, sticky="w", pady=2)
+        self.v_ground_key = tk.StringVar(value=self.cfg["ground_api_key"])
+        ttk.Entry(cfg, textvariable=self.v_ground_key, show="*", width=50).grid(row=3, column=1, sticky="ew", padx=(8, 0))
+
+        ttk.Label(cfg, text="定位模型").grid(row=4, column=0, sticky="w", pady=2)
+        self.v_ground_model = tk.StringVar(value=self.cfg["ground_model"])
+        ttk.Entry(cfg, textvariable=self.v_ground_model, width=50).grid(row=4, column=1, sticky="ew", padx=(8, 0))
+
+        # 分辨率
+        ttk.Label(cfg, text="定位分辨率").grid(row=5, column=0, sticky="w", pady=2)
         res_frame = ttk.Frame(cfg)
-        res_frame.grid(row=3, column=1, sticky="w", padx=(8, 0))
+        res_frame.grid(row=5, column=1, sticky="w", padx=(8, 0))
         self.v_gw = tk.StringVar()
         self.v_gh = tk.StringVar()
         ttk.Entry(res_frame, textvariable=self.v_gw, width=6).pack(side="left")
@@ -108,8 +132,9 @@ class Launcher:
         self.v_screen_info = tk.StringVar()
         ttk.Label(res_frame, textvariable=self.v_screen_info, foreground="gray").pack(side="left", padx=(10, 0))
 
+        # 启动按钮
         btn_frame = ttk.Frame(cfg)
-        btn_frame.grid(row=4, column=0, columnspan=2, pady=(8, 0))
+        btn_frame.grid(row=6, column=0, columnspan=2, pady=(8, 0))
         self.btn_start = ttk.Button(btn_frame, text="▶  启动 Agent", command=self._start_agent, width=20)
         self.btn_start.pack(side="left", padx=4)
         self.btn_stop = ttk.Button(btn_frame, text="■  停止", command=self._stop_agent, width=10, state="disabled")
@@ -130,6 +155,7 @@ class Launcher:
                                              insertbackground="white")
         self.log.grid(row=0, column=0, sticky="nsew")
 
+        # 颜色标签
         self.log.tag_config("info",    foreground="#9cdcfe")
         self.log.tag_config("action",  foreground="#4ec9b0")
         self.log.tag_config("warn",    foreground="#ce9178")
@@ -157,13 +183,11 @@ class Launcher:
         parent.columnconfigure(0, weight=1)
         parent.rowconfigure(1, weight=1)
 
-        # toolbar
         toolbar = ttk.Frame(parent)
         toolbar.grid(row=0, column=0, sticky="ew", padx=8, pady=(8, 2))
         ttk.Button(toolbar, text="🔄 刷新列表", command=self._reload_sops).pack(side="left")
         ttk.Label(toolbar, text="  点击卡片填写参数并执行", foreground="gray").pack(side="left")
 
-        # scrollable card area
         canvas = tk.Canvas(parent, highlightthickness=0)
         canvas.grid(row=1, column=0, sticky="nsew", padx=8, pady=4)
         vsb = ttk.Scrollbar(parent, orient="vertical", command=canvas.yview)
@@ -176,11 +200,9 @@ class Launcher:
                              lambda e: canvas.configure(scrollregion=canvas.bbox("all")))
         canvas.bind("<Configure>",
                     lambda e: canvas.itemconfig(self._sop_frame_id, width=e.width))
-        # mouse wheel
         canvas.bind_all("<MouseWheel>",
                         lambda e: canvas.yview_scroll(-1 * (e.delta // 120), "units"))
 
-        # SOP execution log
         log_frame = ttk.LabelFrame(parent, text="执行日志", padding=4)
         log_frame.grid(row=2, column=0, columnspan=2, sticky="ew", padx=8, pady=(4, 8))
         log_frame.columnconfigure(0, weight=1)
@@ -260,7 +282,6 @@ class Launcher:
                 val = ""
             params[name] = val
 
-        # check required params
         missing = [p["label"] for p in sop.get("params", [])
                    if not params.get(p["name"]) and not p.get("optional")]
         if missing:
@@ -291,6 +312,12 @@ class Launcher:
     # ─── 分辨率自动检测 ───────────────────────────────────────────────────────
 
     def _auto_detect_resolution(self):
+        if self.v_ground_provider.get().strip() == "doubao_ark":
+            self.v_gw.set("1000")
+            self.v_gh.set("1000")
+            sw, sh = pyautogui.size()
+            self.v_screen_info.set(f"（屏幕 {sw}×{sh}，豆包归一化 1000×1000）")
+            return
         sw, sh = pyautogui.size()
         max_dim = 1920
         scale = min(max_dim / sw, max_dim / sh, 1.0)
@@ -299,6 +326,37 @@ class Launcher:
         self.v_gw.set(str(gw))
         self.v_gh.set(str(gh))
         self.v_screen_info.set(f"（屏幕 {sw}×{sh}，自动缩放）")
+
+    def _apply_ground_provider_defaults(self):
+        provider = self.v_ground_provider.get().strip()
+        if provider == "openai":
+            self.v_ground_model.set("gpt-4o")
+            self._auto_detect_resolution()
+        elif provider == "doubao_ark":
+            if not self.v_ground_model.get().strip():
+                self.v_ground_model.set(DEFAULT_CONFIG["ground_model"])
+            if not self.v_ground_key.get().strip():
+                self.v_ground_key.set(self.v_model_key.get().strip())
+            # 豆包模型输出 0-1000 归一化坐标，grounding_width/height 须设为 1000
+            self.v_gw.set("1000")
+            self.v_gh.set("1000")
+        else:
+            self.v_ground_model.set("bytedance/ui-tars-1.5-7b")
+            self._auto_detect_resolution()
+
+    def _ground_provider_arg(self):
+        provider = self.v_ground_provider.get().strip()
+        if provider == "doubao_ark":
+            return "openai"
+        return provider
+
+    def _ground_url(self):
+        provider = self.v_ground_provider.get().strip()
+        if provider == "openai":
+            return "https://api.openai.com/v1"
+        if provider == "doubao_ark":
+            return DEFAULT_CONFIG["model_url"]
+        return "https://openrouter.ai/api/v1"
 
     # ─── 启动 / 停止 ──────────────────────────────────────────────────────────
 
@@ -313,18 +371,25 @@ class Launcher:
         env["PYTHONPATH"] = PROJECT_DIR
         env["PYTHONIOENCODING"] = "utf-8"
 
+        ground_model = self.v_ground_model.get().strip()
+        ground_key = self.v_ground_key.get().strip()
+        if self.v_ground_provider.get().strip() == "doubao_ark":
+            ground_model = ground_model or self.v_model_id.get().strip()
+            ground_key = self.v_model_key.get().strip()
+
         cmd = [
             sys.executable, CLI_APP,
             "--provider", "openai",
             "--model", self.v_model_id.get().strip(),
             "--model_url", DEFAULT_CONFIG["model_url"],
             "--model_api_key", self.v_model_key.get().strip(),
-            "--ground_provider", "open_router",
-            "--ground_url", "https://openrouter.ai/api/v1",
-            "--ground_api_key", self.v_ground_key.get().strip(),
-            "--ground_model", DEFAULT_CONFIG["ground_model"],
+            "--ground_provider", self._ground_provider_arg(),
+            "--ground_url", self._ground_url(),
+            "--ground_api_key", ground_key,
+            "--ground_model", ground_model,
             "--grounding_width", self.v_gw.get().strip(),
             "--grounding_height", self.v_gh.get().strip(),
+            "--budget", "25",
         ]
 
         self.process = subprocess.Popen(
@@ -371,6 +436,7 @@ class Launcher:
                 self.output_queue.put(None)
                 break
             buf += ch
+            # 遇到换行或出现 "Query: " 提示时推送
             if ch == "\n" or buf.endswith("Query: ") or buf.endswith("(y/n): "):
                 self.output_queue.put(buf)
                 buf = ""
@@ -391,6 +457,7 @@ class Launcher:
         line = ANSI_ESCAPE.sub("", line)
         line_strip = line.strip()
 
+        # 识别 "Query:" 提示，激活输入框
         if line_strip.startswith("Query:"):
             if not self.agent_ready:
                 self.agent_ready = True
@@ -400,10 +467,12 @@ class Launcher:
                 self.entry_query.focus()
             return
 
+        # 自动回复"继续查询"提示
         if "Would you like to provide another query" in line:
             self._write_stdin("y\n")
             return
 
+        # 着色
         if "PLAN:" in line or "Step" in line:
             tag = "action"
         elif "ERROR" in line or "Error" in line or "Traceback" in line:
@@ -449,12 +518,19 @@ class Launcher:
     # ─── 关闭 ─────────────────────────────────────────────────────────────────
 
     def _save_config(self):
+        ground_model = self.v_ground_model.get().strip()
+        ground_key = self.v_ground_key.get().strip()
+        if self.v_ground_provider.get().strip() == "doubao_ark":
+            ground_model = ground_model or self.v_model_id.get().strip()
+            ground_key = self.v_model_key.get().strip()
         save_config({
             "model_api_key":  self.v_model_key.get().strip(),
             "model_id":       self.v_model_id.get().strip(),
             "model_url":      DEFAULT_CONFIG["model_url"],
-            "ground_api_key": self.v_ground_key.get().strip(),
-            "ground_model":   DEFAULT_CONFIG["ground_model"],
+            "ground_provider": self.v_ground_provider.get().strip(),
+            "ground_api_key": ground_key,
+            "ground_url":     self._ground_url(),
+            "ground_model":   ground_model,
         })
         self.v_status.set("配置已保存 ✓")
 
