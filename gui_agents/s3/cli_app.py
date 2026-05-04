@@ -14,7 +14,7 @@ import traceback
 
 from PIL import Image, ImageGrab
 
-from gui_agents.s3.agents.grounding_feishu import WindowsFeishuACI as OSWorldACI
+from gui_agents.s3.agents.grounding import OSWorldACI
 from gui_agents.s3.agents.agent_s import AgentS3
 
 current_platform = platform.system().lower()
