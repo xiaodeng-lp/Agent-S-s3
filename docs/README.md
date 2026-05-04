@@ -11,6 +11,11 @@
 7. [参考文档](#5-参考文档)
 8. [Archive](./archive/)
 
+补充阅读（按需查阅）：
+- [Interface Compatibility](./interfaces/interface_compatibility.md)：API 兼容性与迁移指南
+- [OSCAR State Verification](./spec/oscar_state_verification.md)：已实现的逐步骤状态验证设计
+- [Project State](./process/project_state.md)：当前项目实现状态与进度追踪
+
 ## 2. 文档职责
 
 - `项目需求.md`：外部输入，定义竞赛题目和原始要求。
@@ -20,6 +25,11 @@
 - `interfaces/feishu_gui_agent_interfaces.md`：内部模块契约，回答“模块之间如何对接”。
 - `process/feishu_gui_agent_parallel_dev_playbook.md`：团队和多 agent 协作执行规范，回答“并行开发怎么做而不打架”。
 - `../CONTRIBUTE.md`：仓库级贡献规范，回答“提交前要检查什么、PR 怎么提、并行开发怎么守规则”。
+- `interfaces/interface_compatibility.md`：API 兼容性对照与迁移 check list，补充 interfaces 契约文档。
+- `spec/oscar_state_verification.md`：已实现的 OSCAR 逐步骤状态验证设计，记录 worker.py 预期状态追踪机制。
+- `process/project_state.md`：当前项目实现状态、已知工作流、已知问题，每次 session 结束时更新。
+- `archive/feishu_decisions_log.md`：Windows Feishu 开发关键决策记录（9 项已定决策）。
+- `archive/feishu_test_log_2026-05-03.md`：2026-05-03 测试证据与根因分析。
 - `archive/`：历史草案归档，不再作为主维护入口。
 
 ## 3. 推荐协作流程
