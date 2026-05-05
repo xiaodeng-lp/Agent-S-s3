@@ -10,21 +10,13 @@ pyautogui.FAILSAFE = False
 import signal
 import sys
 import time
-import traceback
 
-from PIL import Image, ImageGrab
+from PIL import Image
 
-from gui_agents.s3.agents.grounding_feishu import WindowsFeishuACI as OSWorldACI
+from gui_agents.s3.agents.grounding import OSWorldACI
 from gui_agents.s3.agents.agent_s import AgentS3
 
 current_platform = platform.system().lower()
-
-try:
-    sys.stdin.reconfigure(encoding="utf-8", errors="replace")
-    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
-    sys.stderr.reconfigure(encoding="utf-8", errors="replace")
-except Exception:
-    pass
 
 # Global flag to track pause state for debugging
 paused = False
@@ -276,6 +268,30 @@ def capture_desktop_screenshot():
 def run_agent(
     agent, instruction: str, scaled_width: int, scaled_height: int, max_steps: int
 ):
+def _settle_delay(exec_code: str) -> float:
+    """Return UI settle delay (seconds) based on action type.
+
+    Navigation & page-load actions need more time before the next screenshot.
+    """
+    code_lower = exec_code.lower()
+    # App switching / opening — heavy UI transition
+    if any(k in code_lower for k in ("switch_applications", "hotkey('win'", "open(")):
+        return 3.0
+    # Click actions that likely trigger navigation or menu expansion
+    if "click" in code_lower:
+        # Longer wait for clicks that open menus, dialogs, or new pages
+        if any(k in code_lower for k in ("新建", "文档", "菜单", "menu", "更多", "设置",
+                                           "添加", "创建", "打开", "上传", "保存")):
+            return 2.5
+        return 1.5
+    # Drag, scroll, type — usually instant
+    if any(k in code_lower for k in ("drag", "scroll", "type", "hotkey", "press")):
+        return 1.0
+    # Default
+    return 1.5
+
+
+def run_agent(agent, instruction: str, scaled_width: int, scaled_height: int, max_steps: int = 15):
     global paused
     obs = {}
     traj = "Task:\n" + instruction
@@ -284,9 +300,8 @@ def run_agent(
         # Check if we're in paused state and wait
         while paused:
             time.sleep(0.1)
-        # Get screen shot. On Windows, capture the full virtual desktop so
-        # applications on secondary monitors are visible to the visual model.
-        screenshot = capture_desktop_screenshot()
+        # Get screen shot using pyautogui
+        screenshot = pyautogui.screenshot()
         screenshot = screenshot.resize((scaled_width, scaled_height), Image.LANCZOS)
 
         # Save the screenshot to a BytesIO object
@@ -303,14 +318,15 @@ def run_agent(
             time.sleep(0.1)
 
         print(f"\n🔄 Step {step + 1}/{max_steps}: Getting next action from agent...")
+        t_predict_start = time.time()
 
         # Get next action code from the agent
         info, code = agent.predict(instruction=instruction, observation=obs)
-        exec_code = code[0] if code else ""
-        trace_execution(f"STEP {step + 1} CODE:\n{exec_code}\n---")
-        normalized_code = exec_code.strip().lower()
 
-        if normalized_code in {"done", "agent.done()", "fail", "agent.fail()"}:
+        t_predict_elapsed = time.time() - t_predict_start
+        print(f"🧠 模型思考 {t_predict_elapsed:.1f}s")
+
+        if "done" in code[0].lower() or "fail" in code[0].lower():
             if platform.system() == "Darwin":
                 os.system(
                     f'osascript -e \'display dialog "Task Completed" with title "OpenACI Agent" buttons "OK" default button "OK"\''
@@ -322,32 +338,33 @@ def run_agent(
 
             break
 
-        if normalized_code in {"next", "agent.next()"}:
+        if "next" in code[0].lower():
             continue
 
-        if normalized_code == "wait" or normalized_code.startswith("agent.wait("):
+        if "wait" in code[0].lower():
             print("⏳ Agent requested wait...")
             time.sleep(5)
             continue
 
         else:
-            time.sleep(1.0)
-            print("EXECUTING CODE:", exec_code, flush=True)
+            print("EXECUTING CODE:", code[0])
 
             # Check for pause state before execution
             while paused:
                 time.sleep(0.1)
 
+            # Pre-exec settle: brief buffer before action
+            settle_pre = 0.5 if step > 0 else 0.0
+            if settle_pre > 0:
+                time.sleep(settle_pre)
+
             # Ask for permission before executing
-            try:
-                exec(exec_code)
-            except Exception as exc:
-                tb = traceback.format_exc()
-                print("EXEC_CODE_ERROR:", repr(exc), flush=True)
-                trace_execution(f"EXEC_CODE_ERROR: {exc!r}\n{tb}")
-                logger.exception("Error executing generated code")
-                continue
-            time.sleep(1.0)
+            exec(code[0])
+
+            # Post-exec dynamic settle: longer for navigation-triggering actions
+            settle_post = _settle_delay(code[0])
+            print(f"⏳ 等待 UI 稳定 ({settle_pre + settle_post:.1f}s)...")
+            time.sleep(settle_post)
 
             # Update task and subtask trajectories
             if "reflection" in info and "executor_plan" in info:
@@ -360,8 +377,6 @@ def run_agent(
 
 
 def main():
-    configure_windows_dpi_awareness()
-
     parser = argparse.ArgumentParser(description="Run AgentS3 with specified model.")
     parser.add_argument(
         "--provider",
@@ -431,6 +446,13 @@ def main():
         required=True,
         help="Height of screenshot image after processor rescaling",
     )
+    parser.add_argument(
+        "--ground_coord_scale",
+        type=int,
+        default=None,
+        help="Coordinate range the grounding model outputs (1000 for Doubao). "
+             "Only needed for models that output in normalized coords.",
+    )
 
     # AgentS3 specific arguments
     parser.add_argument(
@@ -446,43 +468,34 @@ def main():
         help="Enable reflection agent to assist the worker agent",
     )
     parser.add_argument(
+        "--reflection_mode",
+        type=str,
+        default="on_failure",
+        choices=["full", "reduced", "on_failure", "off"],
+        help="Reflection frequency: full (every step), reduced (every other), "
+             "on_failure (only after failed steps), off (disabled)",
+    )
+    parser.add_argument(
+        "--reasoning_effort",
+        type=str,
+        default="medium",
+        choices=["low", "medium", "high", "xhigh"],
+        help="Reasoning effort for GPT/o-series models (low/medium/high/xhigh)",
+    )
+    parser.add_argument(
         "--budget",
         type=int,
-        default=25,
-        help="Maximum number of steps (default: 25)",
+        default=15,
+        help="Maximum number of steps (default: 15)",
     )
 
     args = parser.parse_args()
 
-    # Re-scales screenshot size to ensure it fits in UI-TARS context limit.
-    # Use the actual captured image size because Windows multi-monitor setups
-    # can place the target app outside pyautogui.size()'s primary-screen area.
-    initial_screenshot = capture_desktop_screenshot()
-    screen_width, screen_height = initial_screenshot.size
+    # Re-scales screenshot size to ensure it fits in UI-TARS context limit
+    screen_width, screen_height = pyautogui.size()
     max_dim = max(args.grounding_width, args.grounding_height)
     scaled_width, scaled_height = scale_screen_dimensions(
         screen_width, screen_height, max_dim_size=max_dim
-    )
-    trace_execution(
-        "SCREEN_INIT: "
-        + repr(
-            {
-                "captured_size": (screen_width, screen_height),
-                "scaled_size": (scaled_width, scaled_height),
-                "arg_grounding_size": (args.grounding_width, args.grounding_height),
-                "platform": platform.system(),
-            }
-        )
-    )
-    print(
-        "SCREEN_INIT:",
-        {
-            "captured_size": (screen_width, screen_height),
-            "scaled_size": (scaled_width, scaled_height),
-            "arg_grounding_size": (args.grounding_width, args.grounding_height),
-            "platform": platform.system(),
-        },
-        flush=True,
     )
 
     # Load the general engine params
@@ -492,6 +505,8 @@ def main():
         "base_url": args.model_url,
         "api_key": args.model_api_key,
         "temperature": getattr(args, "model_temperature", None),
+        "reasoning_effort": args.reasoning_effort,
+        "reflection_mode": args.reflection_mode,
     }
 
     # Load the grounding engine from a custom endpoint
@@ -500,30 +515,11 @@ def main():
         "model": args.ground_model,
         "base_url": args.ground_url,
         "api_key": args.ground_api_key,
-        "grounding_width": scaled_width,
-        "grounding_height": scaled_height,
+        "grounding_width": args.grounding_width,
+        "grounding_height": args.grounding_height,
     }
-    trace_execution(
-        "MODEL_INTERFACE_INIT: "
-        + repr(
-            {
-                "main_provider": args.provider,
-                "main_model": args.model,
-                "main_url": summarize_endpoint(args.model_url),
-                "ground_provider": args.ground_provider,
-                "ground_model": args.ground_model,
-                "ground_url": summarize_endpoint(args.ground_url),
-                "same_model": args.model == args.ground_model,
-                "same_url": args.model_url.rstrip("/") == args.ground_url.rstrip("/"),
-                "requested_grounding_size": (
-                    args.grounding_width,
-                    args.grounding_height,
-                ),
-                "actual_grounding_size": (scaled_width, scaled_height),
-                "captured_screen_size": (screen_width, screen_height),
-            }
-        )
-    )
+    if args.ground_coord_scale is not None:
+        engine_params_for_grounding["ground_coord_scale"] = args.ground_coord_scale
 
     grounding_agent = OSWorldACI(
         platform=current_platform,
@@ -531,7 +527,6 @@ def main():
         engine_params_for_grounding=engine_params_for_grounding,
         width=screen_width,
         height=screen_height,
-        code_agent_budget=args.budget,
     )
 
     agent = AgentS3(
@@ -544,10 +539,6 @@ def main():
 
     while True:
         query = input("Query: ")
-        repaired_query = repair_text_mojibake(query)
-        if repaired_query != query:
-            trace_execution(f"QUERY_REPAIRED: {query!r} => {repaired_query!r}")
-            query = repaired_query
 
         agent.reset()
 

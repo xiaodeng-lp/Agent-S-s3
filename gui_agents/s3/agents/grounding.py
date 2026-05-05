@@ -171,7 +171,7 @@ def set_cell_values(new_cell_values: dict[str, str], app_name: str = "Untitled 1
     else:
         raise ValueError(f"Could not find LibreOffice Calc app corresponding to {{app_name}}.")
 
-set_cell_values(new_cell_values={cell_values}, app_name="{app_name}", sheet_name="{sheet_name}")
+set_cell_values(new_cell_values={cell_values}, app_name="{app_name}", sheet_name="{sheet_name}")        
 """
 
 
@@ -227,22 +227,69 @@ class OSWorldACI(ACI):
 
     # Given the state and worker's referring expression, use the grounding model to generate (x,y)
     def generate_coords(self, ref_expr: str, obs: Dict) -> List[int]:
+        model_name = self.engine_params_for_grounding.get("model", "").lower()
+        is_doubao = "doubao" in model_name
 
         # Reset the grounding model state
         self.grounding_model.reset()
 
-        # Configure the context, UI-TARS demo does not use system prompt
-        prompt = f"Query:{ref_expr}\nOutput only the coordinate of one point in your response.\n"
-        self.grounding_model.add_message(
-            text_content=prompt, image_content=obs["screenshot"], put_text_last=True
-        )
+        if is_doubao:
+            # Doubao-Seed-1.6-vision official grounding format (per volcengine docs).
+            # The model outputs coordinates in 0-1000 normalized space regardless of
+            # image dimensions. temp=0, top_p=0.7 for deterministic output.
+            coord_scale = self.engine_params_for_grounding.get("ground_coord_scale", 1000)
+            platform_names = {"windows": "Windows", "darwin": "macOS", "linux": "Linux"}
+            platform_name = platform_names.get(self.platform, self.platform)
+            prompt = (
+                f"You are a GUI agent operating on a {platform_name} desktop. "
+                "Given a screenshot, locate the described UI element "
+                "and output the click action with its coordinates.\n\n"
+                "## Action Space\n"
+                "click(point='<point>x1 y1</point>')\n\n"
+                "## Output Format\n"
+                "Thought: ...\n"
+                "Action: click(point='<point>x1 y1</point>')\n\n"
+                "## Rules\n"
+                f"- Coordinates: use 0-{coord_scale} range for both width and height "
+                "(0,0 = top-left, {coord_scale},{coord_scale} = bottom-right).\n"
+                "- Locate the center point of the described element.\n"
+                "- End your response with the Action line.\n\n"
+                f"## Element Description\n{ref_expr}"
+            )
+            self.grounding_model.add_message(
+                text_content=prompt, image_content=obs["screenshot"], put_text_last=False
+            )
+            # Official recommended params: temperature=0, top_p=0.7
+            response = call_llm_safe(self.grounding_model, temperature=0.0, top_p=0.7)
+            print("RAW GROUNDING MODEL RESPONSE:", response)
 
-        # Generate and parse coordinates
-        response = call_llm_safe(self.grounding_model)
-        print("RAW GROUNDING MODEL RESPONSE:", response)
-        numericals = re.findall(r"\d+", response)
-        assert len(numericals) >= 2
-        return [int(numericals[0]), int(numericals[1])]
+            # Parse Doubao's <point>x y</point> format
+            point_match = re.search(
+                r"<point>\s*(\d+)\s+(\d+)\s*</point>", response
+            )
+            if point_match:
+                return [int(point_match.group(1)), int(point_match.group(2))]
+
+            # Fallback: try plain numbers (model might output without tags)
+            numericals = re.findall(r"\d+", response)
+            if len(numericals) >= 2:
+                return [int(numericals[0]), int(numericals[1])]
+            raise ValueError(
+                f"Failed to parse coordinates from Doubao response: {response}"
+            )
+        else:
+            # Original UI-TARS prompt format
+            prompt = f"Query:{ref_expr}\nOutput only the coordinate of one point in your response.\n"
+            self.grounding_model.add_message(
+                text_content=prompt, image_content=obs["screenshot"], put_text_last=True
+            )
+
+            # Generate and parse coordinates
+            response = call_llm_safe(self.grounding_model)
+            print("RAW GROUNDING MODEL RESPONSE:", response)
+            numericals = re.findall(r"\d+", response)
+            assert len(numericals) >= 2
+            return [int(numericals[0]), int(numericals[1])]
 
     # Calls pytesseract to generate word level bounding boxes for text grounding
     def get_ocr_elements(self, b64_image_data: str) -> Tuple[str, List]:
@@ -334,13 +381,21 @@ class OSWorldACI(ACI):
 
     # Resize from grounding model dim into OSWorld dim (1920 * 1080)
     def resize_coordinates(self, coordinates: List[int]) -> List[int]:
-        grounding_width = self.engine_params_for_grounding["grounding_width"]
-        grounding_height = self.engine_params_for_grounding["grounding_height"]
-
-        return [
-            round(coordinates[0] * self.width / grounding_width),
-            round(coordinates[1] * self.height / grounding_height),
-        ]
+        coord_scale = self.engine_params_for_grounding.get("ground_coord_scale")
+        if coord_scale is not None:
+            # Model outputs in normalized 0-coord_scale space (Doubao: 1000)
+            return [
+                round(coordinates[0] * self.width / coord_scale),
+                round(coordinates[1] * self.height / coord_scale),
+            ]
+        else:
+            # UI-TARS: model outputs in image-pixel coordinates
+            grounding_width = self.engine_params_for_grounding["grounding_width"]
+            grounding_height = self.engine_params_for_grounding["grounding_height"]
+            return [
+                round(coordinates[0] * self.width / grounding_width),
+                round(coordinates[1] * self.height / grounding_height),
+            ]
 
     @agent_action
     def click(

@@ -4,6 +4,10 @@ import textwrap
 from typing import Dict, List, Tuple
 
 from gui_agents.s3.agents.grounding import ACI
+from gui_agents.s3.agents.reasoning_strategy import (
+    ReasoningEffort,
+    reasoning_effort_for_step,
+)
 from gui_agents.s3.core.module import BaseModule
 from gui_agents.s3.memory.procedural_memory import PROCEDURAL_MEMORY
 from gui_agents.s3.utils.common_utils import (
@@ -17,8 +21,6 @@ from gui_agents.s3.utils.formatters import (
     SINGLE_ACTION_FORMATTER,
     CODE_VALID_FORMATTER,
 )
-
-import re as _re
 
 logger = logging.getLogger("desktopenv.agent")
 
@@ -66,9 +68,24 @@ class Worker(BaseModule):
             "claude-3-7-sonnet-20250219",
             "claude-sonnet-4-5-20250929",
         ]
+        # reasoning_effort auto-switching for GPT/o-series models
+        raw_effort = worker_engine_params.get("reasoning_effort", "medium")
+        try:
+            self.default_reasoning_effort = ReasoningEffort(raw_effort)
+        except ValueError:
+            self.default_reasoning_effort = ReasoningEffort.MEDIUM
+        self.last_step_failed = False
         self.grounding_agent = grounding_agent
         self.max_trajectory_length = max_trajectory_length
         self.enable_reflection = enable_reflection
+        # reflection_mode: "full" (every step), "reduced" (every other step),
+        # "on_failure" (only when last step failed), "off" (never)
+        self.reflection_mode = worker_engine_params.get("reflection_mode", "on_failure")
+        # Whether the main model supports reasoning_effort (GPT/o-series only)
+        model_name = worker_engine_params.get("model", "").lower()
+        self.supports_reasoning = any(
+            prefix in model_name for prefix in ("gpt-5", "gpt-4", "o1", "o3", "o4")
+        )
 
         self.reset()
 
@@ -92,7 +109,6 @@ class Worker(BaseModule):
         self.reflections = []
         self.cost_this_turn = 0
         self.screenshot_inputs = []
-        self.last_expected_state: str = ""
 
     def flush_messages(self):
         """Flush messages based on the model's context limits.
@@ -129,6 +145,19 @@ class Worker(BaseModule):
             if len(self.reflection_agent.messages) > self.max_trajectory_length + 1:
                 self.reflection_agent.messages.pop(1)
 
+    def _should_reflect(self) -> bool:
+        """Decide whether to run reflection on this step based on reflection_mode."""
+        if not self.enable_reflection or self.reflection_mode == "off":
+            return False
+        if self.reflection_mode == "full":
+            return True
+        if self.reflection_mode == "reduced":
+            # Reflect on odd steps (1, 3, 5, ...); step 0 is setup-only anyway
+            return self.turn_count % 2 == 1
+        if self.reflection_mode == "on_failure":
+            return self.last_step_failed
+        return True
+
     def _generate_reflection(self, instruction: str, obs: Dict) -> Tuple[str, str]:
         """
         Generate a reflection based on the current observation and instruction.
@@ -147,7 +176,7 @@ class Worker(BaseModule):
         reflection = None
         reflection_thoughts = None
         if self.enable_reflection:
-            # Load the initial message
+            # Load the initial message (always done for context)
             if self.turn_count == 0:
                 text_content = textwrap.dedent(f"""
                     Task Description: {instruction}
@@ -162,24 +191,33 @@ class Worker(BaseModule):
                     image_content=obs["screenshot"],
                     role="user",
                 )
-            # Load the latest action
+            # Load the latest action (always add to history for context)
             else:
                 self.reflection_agent.add_message(
                     text_content=self.worker_history[-1],
                     image_content=obs["screenshot"],
                     role="user",
                 )
-                full_reflection = call_llm_safe(
-                    self.reflection_agent,
-                    temperature=self.temperature,
-                    use_thinking=self.use_thinking,
-                )
-                reflection, reflection_thoughts = split_thinking_response(
-                    full_reflection
-                )
-                self.reflections.append(reflection)
-                logger.info("REFLECTION THOUGHTS: %s", reflection_thoughts)
-                logger.info("REFLECTION: %s", reflection)
+                # Only call the LLM if the reflection mode allows it
+                if self._should_reflect():
+                    reflect_kwargs = {}
+                    if self.supports_reasoning:
+                        reflect_kwargs["reasoning_effort"] = self.default_reasoning_effort.value
+                    full_reflection = call_llm_safe(
+                        self.reflection_agent,
+                        temperature=self.temperature,
+                        use_thinking=self.use_thinking,
+                        **reflect_kwargs,
+                    )
+                    reflection, reflection_thoughts = split_thinking_response(
+                        full_reflection
+                    )
+                    self.reflections.append(reflection)
+                    logger.info("REFLECTION THOUGHTS: %s", reflection_thoughts)
+                    logger.info("REFLECTION: %s", reflection)
+                else:
+                    logger.info("REFLECTION SKIPPED (mode=%s, step=%d, failed=%s)",
+                                self.reflection_mode, self.turn_count, self.last_step_failed)
         return reflection, reflection_thoughts
 
     def generate_next_action(self, instruction: str, obs: Dict) -> Tuple[Dict, List]:
@@ -195,12 +233,6 @@ class Worker(BaseModule):
             if self.turn_count > 0
             else "The initial screen is provided. No action has been taken yet."
         )
-
-        if self.turn_count > 0 and self.last_expected_state:
-            generator_message = (
-                f"Expected state from last action: {self.last_expected_state}\n\n"
-                + generator_message
-            )
 
         # Load the task into the system prompt
         if self.turn_count == 0:
@@ -362,13 +394,36 @@ class Worker(BaseModule):
             SINGLE_ACTION_FORMATTER,
             partial(CODE_VALID_FORMATTER, self.grounding_agent, obs),
         ]
+        # Determine reasoning_effort for this step (GPT/o-series only)
+        current_effort = reasoning_effort_for_step(
+            task=instruction,
+            step=self.turn_count,
+            last_action=self.worker_history[-1] if self.worker_history else None,
+            last_step_failed=self.last_step_failed,
+            default_effort=self.default_reasoning_effort,
+        )
+        if self.supports_reasoning and current_effort != self.default_reasoning_effort:
+            logger.info(
+                "REASONING_EFFORT: %s (default=%s, step=%d, failed=%s)",
+                current_effort.value,
+                self.default_reasoning_effort.value,
+                self.turn_count,
+                self.last_step_failed,
+            )
+
+        model_kwargs = {}
+        if self.supports_reasoning:
+            model_kwargs["reasoning_effort"] = current_effort.value
+
         plan = call_llm_formatted(
             self.generator_agent,
             format_checkers,
             temperature=self.temperature,
             use_thinking=self.use_thinking,
+            **model_kwargs,
         )
-        self.last_expected_state = _parse_expected_next_state(plan)
+        # Reset failure flag — will be set again if this step fails
+        self.last_step_failed = False
         self.worker_history.append(plan)
         self.generator_agent.add_message(plan, role="assistant")
         logger.info("PLAN:\n %s", plan)
@@ -382,6 +437,7 @@ class Worker(BaseModule):
             logger.error(
                 f"Could not evaluate the following plan code:\n{plan_code}\nError: {e}"
             )
+            self.last_step_failed = True
             exec_code = self.grounding_agent.wait(
                 1.333
             )  # Skip a turn if the code cannot be evaluated
