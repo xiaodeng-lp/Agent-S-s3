@@ -11,6 +11,7 @@ from gui_agents.s3.memory.procedural_memory import PROCEDURAL_MEMORY
 from gui_agents.s3.core.mllm import LMMAgent
 from gui_agents.s3.utils.common_utils import call_llm_safe
 from gui_agents.s3.agents.code_agent import CodeAgent
+from gui_agents.s3.agents._feishu_exec import build_windows_open_code
 import logging
 
 logger = logging.getLogger("desktopenv.agent")
@@ -237,7 +238,9 @@ class OSWorldACI(ACI):
             # Doubao-Seed-1.6-vision official grounding format (per volcengine docs).
             # The model outputs coordinates in 0-1000 normalized space regardless of
             # image dimensions. temp=0, top_p=0.7 for deterministic output.
-            coord_scale = self.engine_params_for_grounding.get("ground_coord_scale", 1000)
+            coord_scale = self.engine_params_for_grounding.get(
+                "ground_coord_scale", 1000
+            )
             platform_names = {"windows": "Windows", "darwin": "macOS", "linux": "Linux"}
             platform_name = platform_names.get(self.platform, self.platform)
             prompt = (
@@ -257,16 +260,16 @@ class OSWorldACI(ACI):
                 f"## Element Description\n{ref_expr}"
             )
             self.grounding_model.add_message(
-                text_content=prompt, image_content=obs["screenshot"], put_text_last=False
+                text_content=prompt,
+                image_content=obs["screenshot"],
+                put_text_last=False,
             )
             # Official recommended params: temperature=0, top_p=0.7
             response = call_llm_safe(self.grounding_model, temperature=0.0, top_p=0.7)
             print("RAW GROUNDING MODEL RESPONSE:", response)
 
             # Parse Doubao's <point>x y</point> format
-            point_match = re.search(
-                r"<point>\s*(\d+)\s+(\d+)\s*</point>", response
-            )
+            point_match = re.search(r"<point>\s*(\d+)\s+(\d+)\s*</point>", response)
             if point_match:
                 return [int(point_match.group(1)), int(point_match.group(2))]
 
@@ -452,6 +455,8 @@ class OSWorldACI(ACI):
             return f"import pyautogui; pyautogui.hotkey('win'); time.sleep(0.5); pyautogui.write({repr(app_or_filename)}); time.sleep(1.0); pyautogui.hotkey('enter'); time.sleep(0.5)"
         elif self.platform == "darwin":
             return f"import pyautogui; import time; pyautogui.hotkey('command', 'space', interval=0.5); pyautogui.typewrite({repr(app_or_filename)}); pyautogui.press('enter'); time.sleep(1.0)"
+        elif self.platform == "windows":
+            return build_windows_open_code(app_or_filename)
 
     @agent_action
     def type(

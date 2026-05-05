@@ -16,6 +16,7 @@ import pyautogui
 
 try:
     from openai import OpenAI
+
     _OPENAI_AVAILABLE = True
 except ImportError:
     _OPENAI_AVAILABLE = False
@@ -166,13 +167,34 @@ def _sync_flat_fields(cfg: dict):
 
 def _apply_env_defaults(cfg: dict, had_main_routing: bool):
     env = _parse_env_txt(ENV_FILE)
-    ark_key = env.get("ARK_API_KEY") or env.get("api-key", "")
+    main_ark_key = (
+        env.get("VOLCANO_API_KEY")
+        or env.get("ARK_MAIN_API_KEY")
+        or env.get("api-key", "")
+        or env.get("ARK_API_KEY", "")
+    )
+    main_endpoint_id = (
+        env.get("VOLCANO_ENDPOINT_ID")
+        or env.get("ARK_MAIN_ENDPOINT_ID")
+        or env.get("ep-id", "")
+    )
+    ground_ark_key = (
+        env.get("ARK_API_KEY") or env.get("GROUND_API_KEY") or main_ark_key
+    )
 
     volcano_cfg = cfg["main_providers"]["volcano"]
-    if ark_key and not volcano_cfg["model_api_key"]:
-        volcano_cfg["model_api_key"] = ark_key
-    if env.get("ep-id") and not volcano_cfg["model_id"]:
-        volcano_cfg["model_id"] = env["ep-id"]
+    current_volcano_key = volcano_cfg.get("model_api_key", "")
+    should_repair_legacy_fallback = (
+        current_volcano_key
+        and env.get("api-key")
+        and env.get("ARK_API_KEY")
+        and current_volcano_key == env.get("ARK_API_KEY")
+        and env.get("api-key") != env.get("ARK_API_KEY")
+    )
+    if main_ark_key and (not current_volcano_key or should_repair_legacy_fallback):
+        volcano_cfg["model_api_key"] = main_ark_key
+    if main_endpoint_id and not volcano_cfg["model_id"]:
+        volcano_cfg["model_id"] = main_endpoint_id
 
     gpt_cfg = cfg["main_providers"]["openai_gpt"]
     if env.get("oai_api") and not gpt_cfg["model_api_key"]:
@@ -189,15 +211,18 @@ def _apply_env_defaults(cfg: dict, had_main_routing: bool):
         gpt_cfg["model_id"] = env["model"]
 
     doubao_ground = cfg["ground_providers"]["doubao_ark"]
-    if ark_key and not doubao_ground["api_key"]:
-        doubao_ground["api_key"] = ark_key
+    if ground_ark_key and not doubao_ground["api_key"]:
+        doubao_ground["api_key"] = ground_ark_key
 
     if (
         env.get("model_reasoning_effort")
         and cfg["reasoning_effort"] == DEFAULT_CONFIG["reasoning_effort"]
     ):
         cfg["reasoning_effort"] = env["model_reasoning_effort"]
-    if env.get("reflection_mode") and cfg["reflection_mode"] == DEFAULT_CONFIG["reflection_mode"]:
+    if (
+        env.get("reflection_mode")
+        and cfg["reflection_mode"] == DEFAULT_CONFIG["reflection_mode"]
+    ):
         cfg["reflection_mode"] = env["reflection_mode"]
 
     if not had_main_routing and gpt_cfg["model_api_key"] and gpt_cfg["model_id"]:
@@ -220,7 +245,9 @@ def load_config() -> dict:
 
     cfg.update(raw)
     cfg["main_provider"] = cfg.get("main_provider") or _infer_main_provider(raw)
-    cfg["ground_provider"] = _normalize_ground_provider(cfg.get("ground_provider", "doubao_ark"))
+    cfg["ground_provider"] = _normalize_ground_provider(
+        cfg.get("ground_provider", "doubao_ark")
+    )
 
     merged_main = copy.deepcopy(DEFAULT_CONFIG["main_providers"])
     merged_ground = copy.deepcopy(DEFAULT_CONFIG["ground_providers"])
@@ -271,7 +298,9 @@ def detect_environment() -> dict:
     width, height = pyautogui.size()
     dpi_scale = 1.0
     try:
-        if platform.system() == "Windows" and hasattr(ctypes.windll.user32, "GetDpiForSystem"):
+        if platform.system() == "Windows" and hasattr(
+            ctypes.windll.user32, "GetDpiForSystem"
+        ):
             dpi_scale = round(ctypes.windll.user32.GetDpiForSystem() / 96.0, 2)
     except Exception:
         dpi_scale = 1.0
@@ -307,12 +336,23 @@ class Launcher:
             "warn": "#ff9f0a",
             "danger": "#ff3b30",
             "success": "#34c759",
+            "button_text": "#1d1d1f",
+            "input_bg": "#ffffff",
+            "input_text": "#1d1d1f",
             "log_bg": "#fafafa",
         }
 
         self.root = tk.Tk()
         self.root.title("Agent S3 Launcher")
         self.root.configure(bg=self.colors["bg"])
+        self.root.option_add("*TCombobox*Listbox.background", self.colors["panel"])
+        self.root.option_add("*TCombobox*Listbox.foreground", self.colors["text"])
+        self.root.option_add(
+            "*TCombobox*Listbox.selectBackground", self.colors["accent"]
+        )
+        self.root.option_add(
+            "*TCombobox*Listbox.selectForeground", self.colors["button_text"]
+        )
 
         screen_w = self.root.winfo_screenwidth()
         screen_h = self.root.winfo_screenheight()
@@ -355,21 +395,114 @@ class Launcher:
             style.theme_use("clam")
         except tk.TclError:
             pass
-        style.configure(".", background=self.colors["bg"], foreground=self.colors["text"])
+        style.configure(
+            ".", background=self.colors["bg"], foreground=self.colors["text"]
+        )
         style.configure("App.TFrame", background=self.colors["bg"])
-        style.configure("Card.TLabelframe", background=self.colors["panel"], borderwidth=1, relief="solid")
-        style.configure("Card.TLabelframe.Label", background=self.colors["panel"], foreground=self.colors["text"], font=("Segoe UI Semibold", 11))
-        style.configure("App.TLabel", background=self.colors["panel"], foreground=self.colors["text"], font=("Segoe UI", 10))
-        style.configure("Muted.TLabel", background=self.colors["panel"], foreground=self.colors["muted"], font=("Segoe UI", 9))
-        style.configure("Section.TLabel", background=self.colors["panel"], foreground=self.colors["accent"], font=("Segoe UI Semibold", 10))
-        style.configure("Primary.TButton", background=self.colors["accent"], foreground=self.colors["text"], padding=(12, 8))
-        style.configure("Subtle.TButton", background=self.colors["panel_alt"], foreground=self.colors["text"], padding=(10, 7))
-        style.configure("Danger.TButton", background=self.colors["danger"], foreground=self.colors["text"], padding=(10, 7))
+        style.configure(
+            "Card.TLabelframe",
+            background=self.colors["panel"],
+            bordercolor=self.colors["border"],
+            borderwidth=1,
+            relief="solid",
+        )
+        style.configure(
+            "Card.TLabelframe.Label",
+            background=self.colors["panel"],
+            foreground=self.colors["text"],
+            font=("Segoe UI Semibold", 11),
+        )
+        style.configure(
+            "App.TLabel",
+            background=self.colors["panel"],
+            foreground=self.colors["text"],
+            font=("Segoe UI", 10),
+        )
+        style.configure(
+            "Muted.TLabel",
+            background=self.colors["panel"],
+            foreground=self.colors["muted"],
+            font=("Segoe UI", 9),
+        )
+        style.configure(
+            "Section.TLabel",
+            background=self.colors["panel"],
+            foreground=self.colors["accent"],
+            font=("Segoe UI Semibold", 10),
+        )
+        style.configure(
+            "Primary.TButton",
+            background=self.colors["accent"],
+            foreground=self.colors["button_text"],
+            padding=(12, 8),
+            borderwidth=0,
+        )
+        style.configure(
+            "Subtle.TButton",
+            background=self.colors["panel_alt"],
+            foreground=self.colors["button_text"],
+            padding=(10, 7),
+            borderwidth=1,
+        )
+        style.configure(
+            "Danger.TButton",
+            background=self.colors["danger"],
+            foreground=self.colors["button_text"],
+            padding=(10, 7),
+            borderwidth=0,
+        )
+        style.map(
+            "Primary.TButton",
+            background=[("active", "#6d88ff"), ("disabled", "#d6defa")],
+            foreground=[("disabled", "#97a3d3")],
+        )
+        style.map(
+            "Subtle.TButton",
+            background=[("active", "#e5e5ea"), ("disabled", self.colors["panel_alt"])],
+            foreground=[("disabled", "#9a9aa1")],
+        )
+        style.map(
+            "Danger.TButton",
+            background=[("active", "#ff6b60"), ("disabled", "#f7d7d4")],
+            foreground=[("disabled", "#c79c97")],
+        )
         style.configure("TNotebook", background=self.colors["bg"], borderwidth=0)
-        style.configure("TNotebook.Tab", background=self.colors["panel"], foreground=self.colors["muted"], padding=(16, 10), font=("Segoe UI Semibold", 10))
-        style.map("TNotebook.Tab", background=[("selected", self.colors["panel_alt"])], foreground=[("selected", self.colors["text"])])
-        style.configure("TEntry", fieldbackground="#ffffff", foreground="#1d1d1f", padding=4)
-        style.configure("TCombobox", fieldbackground="#ffffff", foreground="#1d1d1f", padding=4)
+        style.configure(
+            "TNotebook.Tab",
+            background=self.colors["panel"],
+            foreground=self.colors["muted"],
+            padding=(16, 10),
+            font=("Segoe UI Semibold", 10),
+        )
+        style.map(
+            "TNotebook.Tab",
+            background=[("selected", self.colors["panel_alt"]), ("active", "#e8edf9")],
+            foreground=[
+                ("selected", self.colors["text"]),
+                ("active", self.colors["text"]),
+            ],
+        )
+        style.configure(
+            "TEntry",
+            fieldbackground=self.colors["input_bg"],
+            foreground=self.colors["input_text"],
+            insertcolor=self.colors["input_text"],
+            padding=5,
+        )
+        style.configure(
+            "TCombobox",
+            fieldbackground=self.colors["input_bg"],
+            foreground=self.colors["input_text"],
+            arrowsize=15,
+            padding=4,
+        )
+        style.map(
+            "TCombobox",
+            fieldbackground=[("readonly", self.colors["input_bg"])],
+            foreground=[("readonly", self.colors["input_text"])],
+            selectbackground=[("readonly", self.colors["input_bg"])],
+            selectforeground=[("readonly", self.colors["input_text"])],
+        )
 
     def _build_state(self):
         self.v_status = tk.StringVar()
@@ -406,19 +539,58 @@ class Launcher:
         outer.columnconfigure(0, weight=1)
         outer.rowconfigure(1, weight=1)
 
-        hero = tk.Frame(outer, bg=self.colors["panel_alt"], highlightbackground=self.colors["border"], highlightthickness=1, padx=18, pady=16)
+        hero = tk.Frame(
+            outer,
+            bg=self.colors["panel_alt"],
+            highlightbackground=self.colors["border"],
+            highlightthickness=1,
+            padx=18,
+            pady=16,
+        )
         hero.grid(row=0, column=0, sticky="ew")
         hero.columnconfigure(0, weight=1)
-        tk.Label(hero, text="Agent S3 Launcher", bg=self.colors["panel_alt"], fg=self.colors["text"], font=("Segoe UI Semibold", 20)).grid(row=0, column=0, sticky="w")
-        tk.Label(hero, text="Provider routing, runtime review, and legacy Doubao grounding compatibility.", bg=self.colors["panel_alt"], fg=self.colors["muted"], font=("Segoe UI", 10)).grid(row=1, column=0, sticky="w", pady=(6, 0))
+        tk.Label(
+            hero,
+            text="Agent S3 Launcher",
+            bg=self.colors["panel_alt"],
+            fg=self.colors["text"],
+            font=("Segoe UI Semibold", 20),
+        ).grid(row=0, column=0, sticky="w")
+        tk.Label(
+            hero,
+            text="Provider routing, runtime review, and legacy Doubao grounding compatibility.",
+            bg=self.colors["panel_alt"],
+            fg=self.colors["muted"],
+            font=("Segoe UI", 10),
+        ).grid(row=1, column=0, sticky="w", pady=(6, 0))
 
         hero_actions = tk.Frame(hero, bg=self.colors["panel_alt"])
         hero_actions.grid(row=0, column=1, rowspan=2, sticky="e")
-        self.status_badge = tk.Label(hero_actions, textvariable=self.v_status, bg="#e5e5ea", fg=self.colors["text"], font=("Segoe UI Semibold", 11), padx=14, pady=6)
+        self.status_badge = tk.Label(
+            hero_actions,
+            textvariable=self.v_status,
+            bg="#e5e5ea",
+            fg=self.colors["button_text"],
+            font=("Segoe UI Semibold", 11),
+            padx=14,
+            pady=6,
+        )
         self.status_badge.pack(side="left", padx=(0, 8))
-        self.btn_stop = ttk.Button(hero_actions, text="停止", style="Danger.TButton", command=self._stop_agent, state="disabled")
+        self.btn_stop = ttk.Button(
+            hero_actions,
+            text="停止",
+            style="Danger.TButton",
+            command=self._stop_agent,
+            state="disabled",
+        )
         self.btn_stop.pack(side="left")
-        tk.Label(hero, textvariable=self.v_status_detail, bg=self.colors["panel_alt"], fg=self.colors["muted"], font=("Segoe UI", 9)).grid(row=2, column=0, sticky="w", pady=(12, 0))
+        tk.Label(
+            hero,
+            textvariable=self.v_status_detail,
+            bg=self.colors["panel_alt"],
+            fg=self.colors["muted"],
+            font=("Segoe UI", 9),
+        ).grid(row=2, column=0, sticky="w", pady=(12, 0))
 
         notebook = ttk.Notebook(outer)
         notebook.grid(row=1, column=0, sticky="nsew", pady=(14, 0))
@@ -443,7 +615,9 @@ class Launcher:
 
         inner = ttk.Frame(canvas, style="App.TFrame")
         inner_id = canvas.create_window((0, 0), window=inner, anchor="nw")
-        inner.bind("<Configure>", lambda e: canvas.configure(scrollregion=canvas.bbox("all")))
+        inner.bind(
+            "<Configure>", lambda e: canvas.configure(scrollregion=canvas.bbox("all"))
+        )
         canvas.bind("<Configure>", lambda e: canvas.itemconfig(inner_id, width=e.width))
         self._agent_canvas = canvas
         self._agent_inner = inner
@@ -451,98 +625,238 @@ class Launcher:
         inner.columnconfigure(0, weight=3)
         inner.columnconfigure(1, weight=2)
 
-        cfg = ttk.LabelFrame(inner, text="运行配置", style="Card.TLabelframe", padding=14)
+        cfg = ttk.LabelFrame(
+            inner, text="运行配置", style="Card.TLabelframe", padding=14
+        )
         cfg.grid(row=0, column=0, sticky="nsew", padx=(0, 10), pady=(0, 10))
         cfg.columnconfigure(1, weight=1)
 
         row = 0
-        ttk.Label(cfg, text="主模型", style="Section.TLabel").grid(row=row, column=0, columnspan=2, sticky="w", pady=(0, 6))
+        ttk.Label(cfg, text="主模型", style="Section.TLabel").grid(
+            row=row, column=0, columnspan=2, sticky="w", pady=(0, 6)
+        )
         row += 1
-        ttk.Label(cfg, text="Provider", style="App.TLabel").grid(row=row, column=0, sticky="w", pady=3)
-        self.cb_main = ttk.Combobox(cfg, textvariable=self.v_main_provider, values=[v["label"] for v in MAIN_PROVIDERS.values()], state="readonly", width=24)
+        ttk.Label(cfg, text="Provider", style="App.TLabel").grid(
+            row=row, column=0, sticky="w", pady=3
+        )
+        self.cb_main = ttk.Combobox(
+            cfg,
+            textvariable=self.v_main_provider,
+            values=[v["label"] for v in MAIN_PROVIDERS.values()],
+            state="readonly",
+            width=24,
+        )
         self.cb_main.grid(row=row, column=1, sticky="w", pady=3)
         self.cb_main.bind("<<ComboboxSelected>>", self._on_main_changed)
         row += 1
-        ttk.Label(cfg, textvariable=self.v_main_key_label, style="App.TLabel").grid(row=row, column=0, sticky="w", pady=3)
-        ttk.Entry(cfg, textvariable=self.v_model_key, show="*").grid(row=row, column=1, sticky="ew", pady=3)
+        ttk.Label(cfg, textvariable=self.v_main_key_label, style="App.TLabel").grid(
+            row=row, column=0, sticky="w", pady=3
+        )
+        ttk.Entry(cfg, textvariable=self.v_model_key, show="*").grid(
+            row=row, column=1, sticky="ew", pady=3
+        )
         row += 1
-        ttk.Label(cfg, textvariable=self.v_main_model_label, style="App.TLabel").grid(row=row, column=0, sticky="w", pady=3)
-        ttk.Entry(cfg, textvariable=self.v_model_id).grid(row=row, column=1, sticky="ew", pady=3)
+        ttk.Label(cfg, textvariable=self.v_main_model_label, style="App.TLabel").grid(
+            row=row, column=0, sticky="w", pady=3
+        )
+        ttk.Entry(cfg, textvariable=self.v_model_id).grid(
+            row=row, column=1, sticky="ew", pady=3
+        )
         row += 1
-        ttk.Label(cfg, text="主模型 URL", style="App.TLabel").grid(row=row, column=0, sticky="w", pady=3)
-        ttk.Entry(cfg, textvariable=self.v_model_url).grid(row=row, column=1, sticky="ew", pady=3)
+        ttk.Label(cfg, text="主模型 URL", style="App.TLabel").grid(
+            row=row, column=0, sticky="w", pady=3
+        )
+        ttk.Entry(cfg, textvariable=self.v_model_url).grid(
+            row=row, column=1, sticky="ew", pady=3
+        )
         row += 1
-        ttk.Separator(cfg, orient="horizontal").grid(row=row, column=0, columnspan=2, sticky="ew", pady=12)
+        ttk.Separator(cfg, orient="horizontal").grid(
+            row=row, column=0, columnspan=2, sticky="ew", pady=12
+        )
         row += 1
-        ttk.Label(cfg, text="定位模型", style="Section.TLabel").grid(row=row, column=0, columnspan=2, sticky="w", pady=(0, 6))
+        ttk.Label(cfg, text="定位模型", style="Section.TLabel").grid(
+            row=row, column=0, columnspan=2, sticky="w", pady=(0, 6)
+        )
         row += 1
-        ttk.Label(cfg, text="Provider", style="App.TLabel").grid(row=row, column=0, sticky="w", pady=3)
-        self.cb_ground = ttk.Combobox(cfg, textvariable=self.v_ground_provider, values=[v["label"] for v in GROUND_PROVIDERS.values()], state="readonly", width=24)
+        ttk.Label(cfg, text="Provider", style="App.TLabel").grid(
+            row=row, column=0, sticky="w", pady=3
+        )
+        self.cb_ground = ttk.Combobox(
+            cfg,
+            textvariable=self.v_ground_provider,
+            values=[v["label"] for v in GROUND_PROVIDERS.values()],
+            state="readonly",
+            width=24,
+        )
         self.cb_ground.grid(row=row, column=1, sticky="w", pady=3)
         self.cb_ground.bind("<<ComboboxSelected>>", self._on_ground_changed)
         row += 1
-        ttk.Label(cfg, textvariable=self.v_ground_key_label, style="App.TLabel").grid(row=row, column=0, sticky="w", pady=3)
-        ttk.Entry(cfg, textvariable=self.v_ground_key, show="*").grid(row=row, column=1, sticky="ew", pady=3)
+        ttk.Label(cfg, textvariable=self.v_ground_key_label, style="App.TLabel").grid(
+            row=row, column=0, sticky="w", pady=3
+        )
+        ttk.Entry(cfg, textvariable=self.v_ground_key, show="*").grid(
+            row=row, column=1, sticky="ew", pady=3
+        )
         row += 1
-        ttk.Label(cfg, text="定位模型名", style="App.TLabel").grid(row=row, column=0, sticky="w", pady=3)
-        ttk.Entry(cfg, textvariable=self.v_ground_model).grid(row=row, column=1, sticky="ew", pady=3)
+        ttk.Label(cfg, text="定位模型名", style="App.TLabel").grid(
+            row=row, column=0, sticky="w", pady=3
+        )
+        ttk.Entry(cfg, textvariable=self.v_ground_model).grid(
+            row=row, column=1, sticky="ew", pady=3
+        )
         row += 1
-        ttk.Label(cfg, text="定位 URL", style="App.TLabel").grid(row=row, column=0, sticky="w", pady=3)
-        ttk.Entry(cfg, textvariable=self.v_ground_url).grid(row=row, column=1, sticky="ew", pady=3)
+        ttk.Label(cfg, text="定位 URL", style="App.TLabel").grid(
+            row=row, column=0, sticky="w", pady=3
+        )
+        ttk.Entry(cfg, textvariable=self.v_ground_url).grid(
+            row=row, column=1, sticky="ew", pady=3
+        )
         row += 1
-        ttk.Label(cfg, text="定位分辨率", style="App.TLabel").grid(row=row, column=0, sticky="w", pady=3)
+        ttk.Label(cfg, text="定位分辨率", style="App.TLabel").grid(
+            row=row, column=0, sticky="w", pady=3
+        )
         res_row = ttk.Frame(cfg, style="App.TFrame")
         res_row.grid(row=row, column=1, sticky="ew", pady=3)
         ttk.Entry(res_row, textvariable=self.v_gw, width=8).pack(side="left")
         ttk.Label(res_row, text=" × ", style="App.TLabel").pack(side="left")
         ttk.Entry(res_row, textvariable=self.v_gh, width=8).pack(side="left")
-        ttk.Label(res_row, textvariable=self.v_screen_info, style="Muted.TLabel").pack(side="left", padx=(10, 0))
+        ttk.Label(res_row, textvariable=self.v_screen_info, style="Muted.TLabel").pack(
+            side="left", padx=(10, 0)
+        )
         row += 1
-        ttk.Separator(cfg, orient="horizontal").grid(row=row, column=0, columnspan=2, sticky="ew", pady=12)
+        ttk.Separator(cfg, orient="horizontal").grid(
+            row=row, column=0, columnspan=2, sticky="ew", pady=12
+        )
         row += 1
-        ttk.Label(cfg, text="运行策略", style="Section.TLabel").grid(row=row, column=0, columnspan=2, sticky="w", pady=(0, 6))
+        ttk.Label(cfg, text="运行策略", style="Section.TLabel").grid(
+            row=row, column=0, columnspan=2, sticky="w", pady=(0, 6)
+        )
         row += 1
-        ttk.Label(cfg, text="Reflection", style="App.TLabel").grid(row=row, column=0, sticky="w", pady=3)
-        self.cb_reflection = ttk.Combobox(cfg, textvariable=self.v_reflection_mode, values=("full", "reduced", "on_failure", "off"), state="readonly", width=18)
+        ttk.Label(cfg, text="Reflection", style="App.TLabel").grid(
+            row=row, column=0, sticky="w", pady=3
+        )
+        self.cb_reflection = ttk.Combobox(
+            cfg,
+            textvariable=self.v_reflection_mode,
+            values=("full", "reduced", "on_failure", "off"),
+            state="readonly",
+            width=18,
+        )
         self.cb_reflection.grid(row=row, column=1, sticky="w", pady=3)
         row += 1
-        ttk.Label(cfg, text="Reasoning", style="App.TLabel").grid(row=row, column=0, sticky="w", pady=3)
-        self.cb_reasoning = ttk.Combobox(cfg, textvariable=self.v_reasoning_effort, values=("low", "medium", "high", "xhigh"), state="readonly", width=18)
+        ttk.Label(cfg, text="Reasoning", style="App.TLabel").grid(
+            row=row, column=0, sticky="w", pady=3
+        )
+        self.cb_reasoning = ttk.Combobox(
+            cfg,
+            textvariable=self.v_reasoning_effort,
+            values=("low", "medium", "high", "xhigh"),
+            state="readonly",
+            width=18,
+        )
         self.cb_reasoning.grid(row=row, column=1, sticky="w", pady=3)
         row += 1
-        ttk.Label(cfg, text="Step Budget", style="App.TLabel").grid(row=row, column=0, sticky="w", pady=3)
-        ttk.Entry(cfg, textvariable=self.v_budget, width=12).grid(row=row, column=1, sticky="w", pady=3)
+        ttk.Label(cfg, text="Step Budget", style="App.TLabel").grid(
+            row=row, column=0, sticky="w", pady=3
+        )
+        ttk.Entry(cfg, textvariable=self.v_budget, width=12).grid(
+            row=row, column=1, sticky="w", pady=3
+        )
         row += 1
         actions = ttk.Frame(cfg, style="App.TFrame")
         actions.grid(row=row, column=0, columnspan=2, sticky="ew", pady=(14, 0))
-        ttk.Button(actions, text="保存配置", style="Subtle.TButton", command=self._save_config).pack(side="left")
-        self.btn_start = ttk.Button(actions, text="启动 Agent", style="Primary.TButton", command=self._start_agent)
+        ttk.Button(
+            actions, text="保存配置", style="Subtle.TButton", command=self._save_config
+        ).pack(side="left")
+        self.btn_start = ttk.Button(
+            actions,
+            text="启动 Agent",
+            style="Primary.TButton",
+            command=self._start_agent,
+        )
         self.btn_start.pack(side="left", padx=(8, 0))
 
-        panel = ttk.LabelFrame(inner, text="运行总览", style="Card.TLabelframe", padding=14)
+        panel = ttk.LabelFrame(
+            inner, text="运行总览", style="Card.TLabelframe", padding=14
+        )
         panel.grid(row=0, column=1, sticky="nsew", pady=(0, 10))
         panel.columnconfigure(0, weight=1)
-        ttk.Label(panel, text="主模型", style="Section.TLabel").grid(row=0, column=0, sticky="w")
-        ttk.Label(panel, textvariable=self.v_summary_main, style="App.TLabel", wraplength=320).grid(row=1, column=0, sticky="w", pady=(4, 10))
-        ttk.Label(panel, text="定位模型", style="Section.TLabel").grid(row=2, column=0, sticky="w")
-        ttk.Label(panel, textvariable=self.v_summary_ground, style="App.TLabel", wraplength=320).grid(row=3, column=0, sticky="w", pady=(4, 10))
-        ttk.Label(panel, text="运行策略", style="Section.TLabel").grid(row=4, column=0, sticky="w")
-        ttk.Label(panel, textvariable=self.v_summary_runtime, style="App.TLabel", wraplength=320).grid(row=5, column=0, sticky="w", pady=(4, 10))
-        ttk.Label(panel, textvariable=self.v_env_info, style="Muted.TLabel", wraplength=320).grid(row=6, column=0, sticky="w", pady=(0, 10))
+        ttk.Label(panel, text="主模型", style="Section.TLabel").grid(
+            row=0, column=0, sticky="w"
+        )
+        ttk.Label(
+            panel, textvariable=self.v_summary_main, style="App.TLabel", wraplength=320
+        ).grid(row=1, column=0, sticky="w", pady=(4, 10))
+        ttk.Label(panel, text="定位模型", style="Section.TLabel").grid(
+            row=2, column=0, sticky="w"
+        )
+        ttk.Label(
+            panel,
+            textvariable=self.v_summary_ground,
+            style="App.TLabel",
+            wraplength=320,
+        ).grid(row=3, column=0, sticky="w", pady=(4, 10))
+        ttk.Label(panel, text="运行策略", style="Section.TLabel").grid(
+            row=4, column=0, sticky="w"
+        )
+        ttk.Label(
+            panel,
+            textvariable=self.v_summary_runtime,
+            style="App.TLabel",
+            wraplength=320,
+        ).grid(row=5, column=0, sticky="w", pady=(4, 10))
+        ttk.Label(
+            panel, textvariable=self.v_env_info, style="Muted.TLabel", wraplength=320
+        ).grid(row=6, column=0, sticky="w", pady=(0, 10))
         btns = ttk.Frame(panel, style="App.TFrame")
         btns.grid(row=7, column=0, sticky="ew")
-        ttk.Button(btns, text="重新检测环境", style="Subtle.TButton", command=self._redetect_environment).pack(side="left")
-        ttk.Button(btns, text="恢复 Doubao 1.6 Vision", style="Subtle.TButton", command=self._restore_doubao_legacy).pack(side="left", padx=(8, 0))
-        ttk.Button(btns, text="测试连通性", style="Primary.TButton", command=self._test_connectivity).pack(side="left", padx=(8, 0))
-        ttk.Button(btns, text="清空日志", style="Subtle.TButton", command=self._clear_logs).pack(side="left", padx=(8, 0))
+        ttk.Button(
+            btns,
+            text="重新检测环境",
+            style="Subtle.TButton",
+            command=self._redetect_environment,
+        ).pack(side="left")
+        ttk.Button(
+            btns,
+            text="恢复 Doubao 1.6 Vision",
+            style="Subtle.TButton",
+            command=self._restore_doubao_legacy,
+        ).pack(side="left", padx=(8, 0))
+        ttk.Button(
+            btns,
+            text="测试连通性",
+            style="Primary.TButton",
+            command=self._test_connectivity,
+        ).pack(side="left", padx=(8, 0))
+        ttk.Button(
+            btns, text="清空日志", style="Subtle.TButton", command=self._clear_logs
+        ).pack(side="left", padx=(8, 0))
 
-        log = ttk.LabelFrame(inner, text="运行日志", style="Card.TLabelframe", padding=10)
+        log = ttk.LabelFrame(
+            inner, text="运行日志", style="Card.TLabelframe", padding=10
+        )
         log.grid(row=1, column=0, columnspan=2, sticky="nsew", pady=(0, 10))
         log.columnconfigure(0, weight=1)
         log.rowconfigure(0, weight=1)
-        self.log = scrolledtext.ScrolledText(log, wrap="word", height=16, font=("Cascadia Code", 10), state="disabled", bg=self.colors["log_bg"], fg=self.colors["text"], insertbackground=self.colors["text"], relief="flat", bd=0, padx=10, pady=10)
+        self.log = scrolledtext.ScrolledText(
+            log,
+            wrap="word",
+            height=16,
+            font=("Cascadia Code", 10),
+            state="disabled",
+            bg=self.colors["log_bg"],
+            fg=self.colors["text"],
+            insertbackground=self.colors["text"],
+            relief="flat",
+            bd=0,
+            padx=10,
+            pady=10,
+        )
         self.log.grid(row=0, column=0, sticky="nsew")
-        self.log.bind("<MouseWheel>", lambda e: self.log.yview_scroll(-1 * (e.delta // 120), "units"))
+        self.log.bind(
+            "<MouseWheel>",
+            lambda e: self.log.yview_scroll(-1 * (e.delta // 120), "units"),
+        )
         self.log.tag_config("info", foreground="#4a6cf7")
         self.log.tag_config("action", foreground="#30b0a0")
         self.log.tag_config("warn", foreground="#e8a030")
@@ -551,15 +865,38 @@ class Launcher:
         self.log.tag_config("muted", foreground=self.colors["muted"])
         self.log.tag_config("normal", foreground=self.colors["text"])
 
-        inp = ttk.LabelFrame(inner, text="任务输入", style="Card.TLabelframe", padding=10)
+        inp = ttk.LabelFrame(
+            inner, text="任务输入", style="Card.TLabelframe", padding=10
+        )
         inp.grid(row=2, column=0, columnspan=2, sticky="ew")
         inp.columnconfigure(0, weight=1)
-        ttk.Label(inp, text="支持最近指令历史。Agent 进入 Query 状态后可发送任务。", style="Muted.TLabel").grid(row=0, column=0, columnspan=3, sticky="w", pady=(0, 8))
-        self.cb_query = ttk.Combobox(inp, textvariable=self.v_query, values=self.command_history, font=("Microsoft YaHei UI", 11), state="disabled")
+        ttk.Label(
+            inp,
+            text="支持最近指令历史。Agent 进入 Query 状态后可发送任务。",
+            style="Muted.TLabel",
+        ).grid(row=0, column=0, columnspan=3, sticky="w", pady=(0, 8))
+        self.cb_query = ttk.Combobox(
+            inp,
+            textvariable=self.v_query,
+            values=self.command_history,
+            font=("Microsoft YaHei UI", 11),
+            state="disabled",
+        )
         self.cb_query.grid(row=1, column=0, sticky="ew", padx=(0, 8))
         self.cb_query.bind("<Return>", lambda _event: self._send_query())
-        ttk.Button(inp, text="插入示例", style="Subtle.TButton", command=self._insert_example_query).grid(row=1, column=1, padx=(0, 8))
-        self.btn_send = ttk.Button(inp, text="发送", style="Primary.TButton", command=self._send_query, state="disabled")
+        ttk.Button(
+            inp,
+            text="插入示例",
+            style="Subtle.TButton",
+            command=self._insert_example_query,
+        ).grid(row=1, column=1, padx=(0, 8))
+        self.btn_send = ttk.Button(
+            inp,
+            text="发送",
+            style="Primary.TButton",
+            command=self._send_query,
+            state="disabled",
+        )
         self.btn_send.grid(row=1, column=2)
 
     def _build_sop_tab(self, parent):
@@ -567,8 +904,12 @@ class Launcher:
         parent.rowconfigure(1, weight=1)
         bar = ttk.Frame(parent, style="App.TFrame")
         bar.grid(row=0, column=0, sticky="ew", pady=(0, 10))
-        ttk.Button(bar, text="刷新 SOP 列表", style="Subtle.TButton", command=self._reload_sops).pack(side="left")
-        ttk.Label(bar, text="点击卡片并填写参数后即可执行预设工作流。", style="Muted.TLabel").pack(side="left", padx=(12, 0))
+        ttk.Button(
+            bar, text="刷新 SOP 列表", style="Subtle.TButton", command=self._reload_sops
+        ).pack(side="left")
+        ttk.Label(
+            bar, text="点击卡片并填写参数后即可执行预设工作流。", style="Muted.TLabel"
+        ).pack(side="left", padx=(12, 0))
         canvas = tk.Canvas(parent, bg=self.colors["bg"], highlightthickness=0, bd=0)
         canvas.grid(row=1, column=0, sticky="nsew")
         vsb = ttk.Scrollbar(parent, orient="vertical", command=canvas.yview)
@@ -576,15 +917,40 @@ class Launcher:
         canvas.configure(yscrollcommand=vsb.set)
         self._sop_canvas = canvas
         self._sop_frame = ttk.Frame(canvas, style="App.TFrame")
-        self._sop_frame_id = canvas.create_window((0, 0), window=self._sop_frame, anchor="nw")
-        self._sop_frame.bind("<Configure>", lambda _event: canvas.configure(scrollregion=canvas.bbox("all")))
-        canvas.bind("<Configure>", lambda event: canvas.itemconfig(self._sop_frame_id, width=event.width))
-        log = ttk.LabelFrame(parent, text="SOP 日志", style="Card.TLabelframe", padding=10)
+        self._sop_frame_id = canvas.create_window(
+            (0, 0), window=self._sop_frame, anchor="nw"
+        )
+        self._sop_frame.bind(
+            "<Configure>",
+            lambda _event: canvas.configure(scrollregion=canvas.bbox("all")),
+        )
+        canvas.bind(
+            "<Configure>",
+            lambda event: canvas.itemconfig(self._sop_frame_id, width=event.width),
+        )
+        log = ttk.LabelFrame(
+            parent, text="SOP 日志", style="Card.TLabelframe", padding=10
+        )
         log.grid(row=2, column=0, columnspan=2, sticky="ew", pady=(10, 0))
         log.columnconfigure(0, weight=1)
-        self.sop_log = scrolledtext.ScrolledText(log, wrap="word", height=6, font=("Cascadia Code", 9), state="disabled", bg=self.colors["log_bg"], fg=self.colors["text"], relief="flat", bd=0, padx=10, pady=10)
+        self.sop_log = scrolledtext.ScrolledText(
+            log,
+            wrap="word",
+            height=6,
+            font=("Cascadia Code", 9),
+            state="disabled",
+            bg=self.colors["log_bg"],
+            fg=self.colors["text"],
+            relief="flat",
+            bd=0,
+            padx=10,
+            pady=10,
+        )
         self.sop_log.grid(row=0, column=0, sticky="ew")
-        self.sop_log.bind("<MouseWheel>", lambda e: self.sop_log.yview_scroll(-1 * (e.delta // 120), "units"))
+        self.sop_log.bind(
+            "<MouseWheel>",
+            lambda e: self.sop_log.yview_scroll(-1 * (e.delta // 120), "units"),
+        )
         self.sop_log.tag_config("ok", foreground="#30a050")
         self.sop_log.tag_config("err", foreground="#ff3b30")
         self.sop_log.tag_config("info", foreground="#4a6cf7")
@@ -605,7 +971,9 @@ class Launcher:
         self.v_model_key.set(data["model_api_key"])
         self.v_model_id.set(data["model_id"])
         self.v_model_url.set(data["model_url"] or spec["default_url"])
-        self.cb_reasoning.configure(state="readonly" if spec["has_reasoning"] else "disabled")
+        self.cb_reasoning.configure(
+            state="readonly" if spec["has_reasoning"] else "disabled"
+        )
 
     def _apply_ground_config(self, key: str):
         spec = GROUND_PROVIDERS[key]
@@ -621,14 +989,16 @@ class Launcher:
             {
                 "model_api_key": self.v_model_key.get().strip(),
                 "model_id": self.v_model_id.get().strip(),
-                "model_url": self.v_model_url.get().strip() or MAIN_PROVIDERS[self._active_main_key]["default_url"],
+                "model_url": self.v_model_url.get().strip()
+                or MAIN_PROVIDERS[self._active_main_key]["default_url"],
             }
         )
         self.cfg["ground_providers"][self._active_ground_key].update(
             {
                 "api_key": self.v_ground_key.get().strip(),
                 "model": self.v_ground_model.get().strip(),
-                "url": self.v_ground_url.get().strip() or GROUND_PROVIDERS[self._active_ground_key]["default_url"],
+                "url": self.v_ground_url.get().strip()
+                or GROUND_PROVIDERS[self._active_ground_key]["default_url"],
             }
         )
         self.cfg["main_provider"] = self._active_main_key
@@ -643,13 +1013,17 @@ class Launcher:
 
     def _on_main_changed(self, _event=None):
         self._persist_current_forms()
-        self._active_main_key = self._provider_key_from_label(MAIN_PROVIDERS, self.v_main_provider.get(), "volcano")
+        self._active_main_key = self._provider_key_from_label(
+            MAIN_PROVIDERS, self.v_main_provider.get(), "volcano"
+        )
         self._apply_main_config(self._active_main_key)
         self._refresh_summary()
 
     def _on_ground_changed(self, _event=None):
         self._persist_current_forms()
-        self._active_ground_key = self._provider_key_from_label(GROUND_PROVIDERS, self.v_ground_provider.get(), "doubao_ark")
+        self._active_ground_key = self._provider_key_from_label(
+            GROUND_PROVIDERS, self.v_ground_provider.get(), "doubao_ark"
+        )
         self._apply_ground_config(self._active_ground_key)
         self._load_resolution_from_config()
         self._refresh_summary()
@@ -659,35 +1033,51 @@ class Launcher:
         spec = GROUND_PROVIDERS[key]
         env = self.cfg.get("detected_environment") or detect_environment()
         self.cfg["detected_environment"] = env
-        rec = self.cfg.get("grounding_overrides", {}).get(key) or env.get("grounding_recommendations", {}).get(key)
+        rec = self.cfg.get("grounding_overrides", {}).get(key) or env.get(
+            "grounding_recommendations", {}
+        ).get(key)
         if rec:
             self.v_gw.set(str(rec["width"]))
             self.v_gh.set(str(rec["height"]))
         else:
             width, height = pyautogui.size()
-            scale = min(spec["image_max_dim"] / width, spec["image_max_dim"] / height, 1.0)
+            scale = min(
+                spec["image_max_dim"] / width, spec["image_max_dim"] / height, 1.0
+            )
             self.v_gw.set(str(int(width * scale)))
             self.v_gh.set(str(int(height * scale)))
         sw, sh = pyautogui.size()
         self.v_screen_info.set(f"屏幕 {sw}×{sh} · 坐标 0-{spec['coord_range']}")
-        self.v_env_info.set(f"{env.get('platform', '?')} | {env.get('screen_width', '?')}×{env.get('screen_height', '?')} | 缩放 {int(env.get('dpi_scale', 1.0) * 100)}%")
+        self.v_env_info.set(
+            f"{env.get('platform', '?')} | {env.get('screen_width', '?')}×{env.get('screen_height', '?')} | 缩放 {int(env.get('dpi_scale', 1.0) * 100)}%"
+        )
 
     def _refresh_summary(self):
         main_spec = MAIN_PROVIDERS[self._active_main_key]
         ground_spec = GROUND_PROVIDERS[self._active_ground_key]
-        self.v_summary_main.set(f"{main_spec['label']} · {self.v_model_id.get().strip() or main_spec['default_model'] or '<empty>'}")
-        self.v_summary_ground.set(f"{ground_spec['label']} · {self.v_ground_model.get().strip() or ground_spec['default_model']}")
-        self.v_summary_runtime.set(f"reflection={self.v_reflection_mode.get()} · reasoning={self.v_reasoning_effort.get()} · budget={self.v_budget.get() or 25}")
+        self.v_summary_main.set(
+            f"{main_spec['label']} · {self.v_model_id.get().strip() or main_spec['default_model'] or '<empty>'}"
+        )
+        self.v_summary_ground.set(
+            f"{ground_spec['label']} · {self.v_ground_model.get().strip() or ground_spec['default_model']}"
+        )
+        self.v_summary_runtime.set(
+            f"reflection={self.v_reflection_mode.get()} · reasoning={self.v_reasoning_effort.get()} · budget={self.v_budget.get() or 25}"
+        )
 
     def _restore_doubao_legacy(self):
         self._persist_current_forms()
         self._active_ground_key = "doubao_ark"
         self.cfg["ground_provider"] = "doubao_ark"
-        self.cfg["ground_providers"]["doubao_ark"]["model"] = GROUND_PROVIDERS["doubao_ark"]["default_model"]
+        self.cfg["ground_providers"]["doubao_ark"]["model"] = GROUND_PROVIDERS[
+            "doubao_ark"
+        ]["default_model"]
         self._apply_ground_config("doubao_ark")
         self._load_resolution_from_config()
         self._refresh_summary()
-        self._set_status("兼容档已恢复", "saved", "已切回 doubao-seed-1-6-vision-250815")
+        self._set_status(
+            "兼容档已恢复", "saved", "已切回 doubao-seed-1-6-vision-250815"
+        )
 
     def _redetect_environment(self):
         self.cfg["detected_environment"] = detect_environment()
@@ -704,17 +1094,18 @@ class Launcher:
         main_spec = MAIN_PROVIDERS[self._active_main_key]
         main_model = self.v_model_id.get().strip() or main_spec["default_model"]
         main_url = self.v_model_url.get().strip() or main_spec["default_url"]
-        main_key = (
-            self.v_model_key.get().strip()
-            or self.cfg["main_providers"].get(self._active_main_key, {}).get("model_api_key", "")
-        )
+        main_key = self.v_model_key.get().strip() or self.cfg["main_providers"].get(
+            self._active_main_key, {}
+        ).get("model_api_key", "")
 
         ground_spec = GROUND_PROVIDERS[self._active_ground_key]
         ground_model = self.v_ground_model.get().strip() or ground_spec["default_model"]
         ground_url = self.v_ground_url.get().strip() or ground_spec["default_url"]
         ground_key = (
             self.v_ground_key.get().strip()
-            or self.cfg["ground_providers"].get(self._active_ground_key, {}).get("api_key", "")
+            or self.cfg["ground_providers"]
+            .get(self._active_ground_key, {})
+            .get("api_key", "")
             or main_key
         )
         if not ground_key:
@@ -732,7 +1123,9 @@ class Launcher:
                 return
             t0 = time.time()
             try:
-                client = OpenAI(base_url=base_url.rstrip("/"), api_key=api_key, timeout=15.0)
+                client = OpenAI(
+                    base_url=base_url.rstrip("/"), api_key=api_key, timeout=15.0
+                )
                 client.chat.completions.create(
                     model=model,
                     messages=[{"role": "user", "content": "hi"}],
@@ -760,7 +1153,9 @@ class Launcher:
             "saved": "#fdf0d1",
             "stopped": "#fddddd",
         }
-        self.status_badge.configure(bg=palette.get(mode, "#e5e5ea"))
+        self.status_badge.configure(
+            bg=palette.get(mode, "#e5e5ea"), fg=self.colors["button_text"]
+        )
         self.v_status.set(status)
         self.v_status_detail.set(detail)
 
@@ -789,7 +1184,10 @@ class Launcher:
         main_url = self.v_model_url.get().strip() or main_spec["default_url"]
         ground_model = self.v_ground_model.get().strip() or ground_spec["default_model"]
         ground_url = self.v_ground_url.get().strip() or ground_spec["default_url"]
-        ground_key = self.v_ground_key.get().strip() or self.cfg["ground_providers"]["doubao_ark"]["api_key"]
+        ground_key = (
+            self.v_ground_key.get().strip()
+            or self.cfg["ground_providers"]["doubao_ark"]["api_key"]
+        )
 
         env = os.environ.copy()
         env["PYTHONPATH"] = PROJECT_DIR
@@ -798,24 +1196,47 @@ class Launcher:
         cmd = [
             sys.executable,
             CLI_APP,
-            "--provider", main_spec["provider"],
-            "--model", main_model,
-            "--model_url", main_url,
-            "--model_api_key", self.v_model_key.get().strip(),
-            "--ground_provider", ground_spec["provider"],
-            "--ground_url", ground_url,
-            "--ground_api_key", ground_key,
-            "--ground_model", ground_model,
-            "--grounding_width", self.v_gw.get().strip(),
-            "--grounding_height", self.v_gh.get().strip(),
-            "--budget", str(budget),
-            "--reflection_mode", self.v_reflection_mode.get().strip(),
-            "--reasoning_effort", self.v_reasoning_effort.get().strip(),
+            "--provider",
+            main_spec["provider"],
+            "--model",
+            main_model,
+            "--model_url",
+            main_url,
+            "--model_api_key",
+            self.v_model_key.get().strip(),
+            "--ground_provider",
+            ground_spec["provider"],
+            "--ground_url",
+            ground_url,
+            "--ground_api_key",
+            ground_key,
+            "--ground_model",
+            ground_model,
+            "--grounding_width",
+            self.v_gw.get().strip(),
+            "--grounding_height",
+            self.v_gh.get().strip(),
+            "--budget",
+            str(budget),
+            "--reflection_mode",
+            self.v_reflection_mode.get().strip(),
+            "--reasoning_effort",
+            self.v_reasoning_effort.get().strip(),
         ]
         if ground_spec["coord_range"] != ground_spec["image_max_dim"]:
             cmd.extend(["--ground_coord_scale", str(ground_spec["coord_range"])])
 
-        self.process = subprocess.Popen(cmd, env=env, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, encoding="utf-8", errors="replace", bufsize=1)
+        self.process = subprocess.Popen(
+            cmd,
+            env=env,
+            stdin=subprocess.PIPE,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            bufsize=1,
+        )
         self.btn_start.configure(state="disabled")
         self.btn_stop.configure(state="normal")
         self.btn_send.configure(state="disabled")
@@ -881,7 +1302,9 @@ class Launcher:
     def _check_startup_timeout(self):
         self._startup_timeout_id = None
         if not self.agent_ready and self.process and self.process.poll() is None:
-            self._log("⚠️ Agent 启动超时（30秒未就绪），请检查配置或停止并重试\n", "warn")
+            self._log(
+                "⚠️ Agent 启动超时（30秒未就绪），请检查配置或停止并重试\n", "warn"
+            )
             self._set_status("超时", "stopped", "启动超时，未收到 Query 信号")
 
     def _handle_line(self, line: str):
@@ -920,11 +1343,23 @@ class Launcher:
             first_line = code_text.split("\n")[0].strip()
             # Detect action type for the summary
             hint = first_line
-            for keyword in ("feishu_click", "feishu_type", "feishu_doc_click",
-                          "feishu_doc_type", "feishu_focus", "pyautogui.click",
-                          "pyautogui.type", "pyautogui.hotkey", "pyautogui.press"):
+            for keyword in (
+                "feishu_click",
+                "feishu_type",
+                "feishu_doc_click",
+                "feishu_doc_type",
+                "feishu_focus",
+                "pyautogui.click",
+                "pyautogui.type",
+                "pyautogui.hotkey",
+                "pyautogui.press",
+            ):
                 if keyword in code_text:
-                    hint = code_text[:code_text.index(keyword)].rsplit("\n", 1)[-1].strip()
+                    hint = (
+                        code_text[: code_text.index(keyword)]
+                        .rsplit("\n", 1)[-1]
+                        .strip()
+                    )
                     if len(hint) > 100:
                         hint = hint[:97] + "..."
                     break
@@ -941,17 +1376,25 @@ class Launcher:
                 self._in_code_block = False
                 self._log("  " + line_strip + "\n", "normal")
                 return
-            for prefix, tag in (("FEISHU_UIA_CLICKED:", "success"),
-                                ("EXEC_CODE_ERROR:", "warn")):
+            for prefix, tag in (
+                ("FEISHU_UIA_CLICKED:", "success"),
+                ("EXEC_CODE_ERROR:", "warn"),
+            ):
                 if prefix in line_strip:
                     self._in_code_block = False
-                    self._log("  ✓ " + line_strip.split(prefix, 1)[1].strip() + "\n", tag)
+                    self._log(
+                        "  ✓ " + line_strip.split(prefix, 1)[1].strip() + "\n", tag
+                    )
                     return
-            for prefix, tag in (("FEISHU_UIA_CLICK_MISS:", "warn"),
-                                ("FEISHU_UIA_CLICK_ERROR:", "warn")):
+            for prefix, tag in (
+                ("FEISHU_UIA_CLICK_MISS:", "warn"),
+                ("FEISHU_UIA_CLICK_ERROR:", "warn"),
+            ):
                 if prefix in line_strip:
                     self._in_code_block = False
-                    self._log("  ⚠ " + line_strip.split(prefix, 1)[1].strip() + "\n", tag)
+                    self._log(
+                        "  ⚠ " + line_strip.split(prefix, 1)[1].strip() + "\n", tag
+                    )
                     return
             # Collapse: skip all other code body lines
             return
@@ -1064,21 +1507,34 @@ class Launcher:
             widget.destroy()
         sops = list_sops()
         if not sops:
-            ttk.Label(self._sop_frame, text="sops/ 目录为空，请在其中添加 JSON 文件", style="Muted.TLabel").pack(padx=14, pady=24)
+            ttk.Label(
+                self._sop_frame,
+                text="sops/ 目录为空，请在其中添加 JSON 文件",
+                style="Muted.TLabel",
+            ).pack(padx=14, pady=24)
             return
         for sop in sops:
             self._make_sop_card(sop)
 
     def _make_sop_card(self, sop: dict):
-        card = ttk.LabelFrame(self._sop_frame, text=sop.get("name", "未命名"), style="Card.TLabelframe", padding=12)
+        card = ttk.LabelFrame(
+            self._sop_frame,
+            text=sop.get("name", "未命名"),
+            style="Card.TLabelframe",
+            padding=12,
+        )
         card.pack(fill="x", padx=4, pady=6)
         card.columnconfigure(1, weight=1)
         desc = sop.get("description", "")
         if desc:
-            ttk.Label(card, text=desc, style="Muted.TLabel", wraplength=760).grid(row=0, column=0, columnspan=2, sticky="w", pady=(0, 8))
+            ttk.Label(card, text=desc, style="Muted.TLabel", wraplength=760).grid(
+                row=0, column=0, columnspan=2, sticky="w", pady=(0, 8)
+            )
         param_vars = {}
         for idx, param in enumerate(sop.get("params", []), start=1):
-            ttk.Label(card, text=param["label"], style="App.TLabel").grid(row=idx, column=0, sticky="w", padx=(0, 10), pady=3)
+            ttk.Label(card, text=param["label"], style="App.TLabel").grid(
+                row=idx, column=0, sticky="w", padx=(0, 10), pady=3
+            )
             var = tk.StringVar()
             entry = ttk.Entry(card, textvariable=var)
             entry.grid(row=idx, column=1, sticky="ew", pady=3)
@@ -1086,14 +1542,31 @@ class Launcher:
             if placeholder:
                 entry.insert(0, placeholder)
             param_vars[param["name"]] = (var, placeholder)
-        ttk.Button(card, text="立即执行", style="Primary.TButton", command=lambda payload=sop, vars_map=param_vars: self._run_sop(payload, vars_map)).grid(row=max(len(param_vars) + 1, 1), column=0, columnspan=2, sticky="w", pady=(10, 0))
+        ttk.Button(
+            card,
+            text="立即执行",
+            style="Primary.TButton",
+            command=lambda payload=sop, vars_map=param_vars: self._run_sop(
+                payload, vars_map
+            ),
+        ).grid(
+            row=max(len(param_vars) + 1, 1),
+            column=0,
+            columnspan=2,
+            sticky="w",
+            pady=(10, 0),
+        )
 
     def _run_sop(self, sop: dict, param_vars: dict):
         params = {}
         for name, (var, placeholder) in param_vars.items():
             value = var.get().strip()
             params[name] = "" if value == placeholder else value
-        missing = [p["label"] for p in sop.get("params", []) if not params.get(p["name"]) and not p.get("optional")]
+        missing = [
+            p["label"]
+            for p in sop.get("params", [])
+            if not params.get(p["name"]) and not p.get("optional")
+        ]
         if missing:
             messagebox.showwarning("缺少参数", f"请填写：{', '.join(missing)}")
             return
@@ -1101,6 +1574,7 @@ class Launcher:
 
         def worker():
             from sop_executor import run_sop
+
             try:
                 run_sop(sop, params, log_fn=lambda msg: self._sop_log_write(msg + "\n"))
             except Exception as exc:
@@ -1124,7 +1598,10 @@ class Launcher:
             gw = int(self.v_gw.get().strip())
             gh = int(self.v_gh.get().strip())
             self.cfg.setdefault("grounding_overrides", {})
-            self.cfg["grounding_overrides"][self._active_ground_key] = {"width": gw, "height": gh}
+            self.cfg["grounding_overrides"][self._active_ground_key] = {
+                "width": gw,
+                "height": gh,
+            }
         except ValueError:
             pass
         save_config(self.cfg)

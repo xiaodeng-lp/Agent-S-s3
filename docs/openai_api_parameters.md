@@ -132,7 +132,7 @@
 
 | Provider | URL | 模型 | 特点 |
 |---|---|---|---|
-| 火山引擎 ARK | `https://ark.cn-beijing.volces.com/api/v3` | doubao-seed-2.0-pro | 默认主力 |
+| 火山引擎 ARK | `https://ark.cn-beijing.volces.com/api/v3` | `ep-...`（指向 `doubao-seed-2.0-pro` 的 Endpoint ID） | 默认主力 |
 | OpenAI Compatible | `https://right.codes/codex/v1` | gpt-5.4 | 支持 reasoning_effort |
 
 ### 定位模型 (Grounding/坐标生成)
@@ -141,6 +141,12 @@
 |---|---|---|---|
 | 火山引擎 ARK | `https://ark.cn-beijing.volces.com/api/v3` | doubao-seed-1-6-vision-250815 | 0-1000 归一化 |
 | OpenRouter | `https://openrouter.ai/api/v1` | bytedance/ui-tars-1.5-7b | 图像像素坐标 |
+
+补充说明：
+
+- 主模型走 ARK 时，GUI / CLI 传给 `--model` 的是 **Endpoint ID**，不是裸模型名字符串。
+- `doubao-seed-2.0-pro` 是主模型所指向的能力型号；实际调用值通常形如 `ep-xxxxxxxxxxxxx-xxxxx`。
+- 若 `env.txt` 同时配置主模型和定位模型两组 ARK 凭据，主模型应使用 `api-key` / `VOLCANO_API_KEY`，定位模型应使用 `ARK_API_KEY` / `GROUND_API_KEY`。
 
 ---
 

@@ -202,7 +202,9 @@ class Worker(BaseModule):
                 if self._should_reflect():
                     reflect_kwargs = {}
                     if self.supports_reasoning:
-                        reflect_kwargs["reasoning_effort"] = self.default_reasoning_effort.value
+                        reflect_kwargs["reasoning_effort"] = (
+                            self.default_reasoning_effort.value
+                        )
                     full_reflection = call_llm_safe(
                         self.reflection_agent,
                         temperature=self.temperature,
@@ -216,8 +218,12 @@ class Worker(BaseModule):
                     logger.info("REFLECTION THOUGHTS: %s", reflection_thoughts)
                     logger.info("REFLECTION: %s", reflection)
                 else:
-                    logger.info("REFLECTION SKIPPED (mode=%s, step=%d, failed=%s)",
-                                self.reflection_mode, self.turn_count, self.last_step_failed)
+                    logger.info(
+                        "REFLECTION SKIPPED (mode=%s, step=%d, failed=%s)",
+                        self.reflection_mode,
+                        self.turn_count,
+                        self.last_step_failed,
+                    )
         return reflection, reflection_thoughts
 
     def generate_next_action(self, instruction: str, obs: Dict) -> Tuple[Dict, List]:

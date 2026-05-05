@@ -265,9 +265,6 @@ def capture_desktop_screenshot():
     return pyautogui.screenshot()
 
 
-def run_agent(
-    agent, instruction: str, scaled_width: int, scaled_height: int, max_steps: int
-):
 def _settle_delay(exec_code: str) -> float:
     """Return UI settle delay (seconds) based on action type.
 
@@ -280,8 +277,22 @@ def _settle_delay(exec_code: str) -> float:
     # Click actions that likely trigger navigation or menu expansion
     if "click" in code_lower:
         # Longer wait for clicks that open menus, dialogs, or new pages
-        if any(k in code_lower for k in ("新建", "文档", "菜单", "menu", "更多", "设置",
-                                           "添加", "创建", "打开", "上传", "保存")):
+        if any(
+            k in code_lower
+            for k in (
+                "新建",
+                "文档",
+                "菜单",
+                "menu",
+                "更多",
+                "设置",
+                "添加",
+                "创建",
+                "打开",
+                "上传",
+                "保存",
+            )
+        ):
             return 2.5
         return 1.5
     # Drag, scroll, type — usually instant
@@ -291,7 +302,9 @@ def _settle_delay(exec_code: str) -> float:
     return 1.5
 
 
-def run_agent(agent, instruction: str, scaled_width: int, scaled_height: int, max_steps: int = 15):
+def run_agent(
+    agent, instruction: str, scaled_width: int, scaled_height: int, max_steps: int = 15
+):
     global paused
     obs = {}
     traj = "Task:\n" + instruction
@@ -451,7 +464,7 @@ def main():
         type=int,
         default=None,
         help="Coordinate range the grounding model outputs (1000 for Doubao). "
-             "Only needed for models that output in normalized coords.",
+        "Only needed for models that output in normalized coords.",
     )
 
     # AgentS3 specific arguments
@@ -473,7 +486,7 @@ def main():
         default="on_failure",
         choices=["full", "reduced", "on_failure", "off"],
         help="Reflection frequency: full (every step), reduced (every other), "
-             "on_failure (only after failed steps), off (disabled)",
+        "on_failure (only after failed steps), off (disabled)",
     )
     parser.add_argument(
         "--reasoning_effort",
