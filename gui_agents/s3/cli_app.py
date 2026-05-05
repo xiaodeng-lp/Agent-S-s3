@@ -5,6 +5,7 @@ import logging
 import os
 import platform
 import pyautogui
+
 pyautogui.FAILSAFE = False
 import signal
 import sys
@@ -19,6 +20,107 @@ current_platform = platform.system().lower()
 
 # Global flag to track pause state for debugging
 paused = False
+
+
+def repair_text_mojibake(text: str) -> str:
+    if not isinstance(text, str):
+        return text
+    candidates = [text]
+    for encoding in ("gbk", "gb18030", "cp936"):
+        for errors in ("strict", "ignore"):
+            try:
+                repaired = text.encode(encoding, errors=errors).decode(
+                    "utf-8", errors=errors
+                )
+            except UnicodeError:
+                continue
+            if repaired and repaired not in candidates:
+                candidates.append(repaired)
+
+    def score(value: str) -> int:
+        good_chars = sum("\u4e00" <= ch <= "\u9fff" for ch in value)
+        bad_markers = sum(
+            value.count(marker)
+            for marker in (
+                "�",
+                "?",
+                "锟",
+                "閿",
+                "閹",
+                "閸",
+                "鍏",
+                "濞",
+                "瀣",
+                "妞",
+                "鐐",
+                "鍔",
+                "鍒",
+                "嗕",
+                "韩",
+                "椋",
+                "炰",
+                "功",
+                "浜",
+                "戞",
+                "枃",
+                "妗",
+                "鏂",
+                "板",
+                "缓",
+                "绌",
+                "櫧",
+                "缁",
+                "堜",
+                "簬",
+                "濂",
+                "戒",
+                "簡",
+            )
+        )
+        return (
+            good_chars * 3
+            - bad_markers * 5
+            + len(value.replace("?", "").replace("�", "").replace("锟", ""))
+        )
+
+    return max(candidates, key=score)
+
+
+def trace_execution(message: str):
+    try:
+        log_dir = os.path.join(os.getcwd(), "logs")
+        os.makedirs(log_dir, exist_ok=True)
+        path = os.path.join(log_dir, "execution-trace.log")
+        with open(path, "a", encoding="utf-8") as f:
+            timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            f.write(f"[{timestamp}] {message}\n")
+    except Exception:
+        pass
+
+
+def summarize_endpoint(value: str) -> str:
+    if not value:
+        return ""
+    value = value.strip()
+    if len(value) <= 80:
+        return value
+    return value[:60] + "..." + value[-12:]
+
+
+def configure_windows_dpi_awareness():
+    if platform.system() != "Windows":
+        return
+    try:
+        import ctypes
+
+        try:
+            ctypes.windll.shcore.SetProcessDpiAwareness(2)
+        except Exception:
+            ctypes.windll.user32.SetProcessDPIAware()
+    except Exception as exc:
+        logging.getLogger("desktopenv.agent").debug(
+            "Could not configure Windows DPI awareness: %s", exc
+        )
 
 
 def get_char():
@@ -152,6 +254,20 @@ def scale_screen_dimensions(width: int, height: int, max_dim_size: int):
     return safe_width, safe_height
 
 
+def capture_desktop_screenshot():
+    if platform.system() == "Windows":
+        try:
+            return ImageGrab.grab(all_screens=True)
+        except Exception as exc:
+            logger.warning(
+                "All-screen capture failed, falling back to pyautogui: %s", exc
+            )
+    return pyautogui.screenshot()
+
+
+def run_agent(
+    agent, instruction: str, scaled_width: int, scaled_height: int, max_steps: int
+):
 def _settle_delay(exec_code: str) -> float:
     """Return UI settle delay (seconds) based on action type.
 

@@ -25,6 +25,17 @@ from gui_agents.s3.utils.formatters import (
 logger = logging.getLogger("desktopenv.agent")
 
 
+def _parse_expected_next_state(plan: str) -> str:
+    match = _re.search(
+        r"\(Expected Next State\)[^\n]*\n(.*?)(?=\n\s*\(|\n\s*```|$)",
+        plan,
+        _re.DOTALL | _re.IGNORECASE,
+    )
+    if match:
+        return match.group(1).strip()
+    return ""
+
+
 class Worker(BaseModule):
     def __init__(
         self,
@@ -167,12 +178,10 @@ class Worker(BaseModule):
         if self.enable_reflection:
             # Load the initial message (always done for context)
             if self.turn_count == 0:
-                text_content = textwrap.dedent(
-                    f"""
+                text_content = textwrap.dedent(f"""
                     Task Description: {instruction}
                     Current Trajectory below:
-                    """
-                )
+                    """)
                 updated_sys_prompt = (
                     self.reflection_agent.system_prompt + "\n" + text_content
                 )
